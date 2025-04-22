@@ -1,0 +1,38 @@
+{
+  "name": "solana-sentinel",
+  "version": "1.0.0",
+  "description": "AI-powered Solana project analysis and trading platform",
+  "main": "server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "solana",
+    "blockchain",
+    "ai",
+    "trading",
+    "analysis"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/openai": "^0.0.14",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.89.1",
+    "axios": "^1.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "langchain": "^0.1.17",
+    "octokit": "^3.1.2",
+    "twitter-api-v2": "^1.15.1",
+    "discord.js": "^14.14.1",
+    "natural": "^6.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
