@@ -4,12 +4,15 @@ import axios from 'axios';
 import { parse } from 'url';
 
 // Import services
-import { analyzeGithubRepo, parseGithubUrl } from '../services/github.js';
 import { 
   analyzeSolanaProgram, 
-  fetchProgramData,
-  fetchTokenMetadata 
 } from '../services/solanaProgram.js';
+
+// Import social sentiment analysis service 
+import { analyzeSocialSentiment } from '../services/socialSentiment.js';
+
+// Import on-chain metrics analysis service
+import { analyzeOnChainMetrics } from '../services/onChainMetrics.js';
 
 /**
  * Agent state class to manage conversation and analysis state
@@ -17,13 +20,13 @@ import {
 class AgentState {
   constructor() {
     this.messages = [];
-    this.githubData = null;
     this.contractData = null;
     this.tokenData = null;
+    this.socialData = null;
+    this.onChainData = null;  // Add new field for on-chain metrics
     this.currentStep = 'start';
     this.finalAnalysis = null;
     this.inputType = null;
-    this.githubUrl = null;
     this.contractAddress = null;
     this.projectName = null;
     this.errors = [];
@@ -70,7 +73,6 @@ class ResearchBot {
     console.log('LOG: analyzeUserInput - Starting analysis of:', inputText);
     
     // Patterns for validation
-    const githubPattern = /github\.com\/[\w-]+\/[\w-]+/;
     const solanaAddressPattern = /[1-9A-HJ-NP-Za-km-z]{32,44}/;
     const tokenPrefix = /token:([1-9A-HJ-NP-Za-km-z]{32,44})/;
     
@@ -87,19 +89,11 @@ class ResearchBot {
         };
       }
       
-      // First try to extract GitHub URL and Solana address from the text
-      console.log('LOG: analyzeUserInput - Checking for GitHub URL and Solana address');
-      const githubMatch = inputText.match(githubPattern);
+      // Check for Solana address
+      console.log('LOG: analyzeUserInput - Checking for Solana address');
       const solanaMatch = inputText.match(solanaAddressPattern);
       
-      if (githubMatch) {
-        console.log(`LOG: analyzeUserInput - Found GitHub URL: ${githubMatch[0]}`);
-        return { 
-          type: 'github_url', 
-          value: githubMatch[0], 
-          confidence: 'high'
-        };
-      } else if (solanaMatch) {
+      if (solanaMatch) {
         console.log(`LOG: analyzeUserInput - Found Solana address: ${solanaMatch[0]}`);
         return { 
           type: 'contract_address', 
@@ -126,64 +120,33 @@ class ResearchBot {
   }
 
   /**
-   * Searches for GitHub repository when only project name is provided
-   * @param {string} projectName - Name of the project to search for
-   * @returns {string|null} GitHub URL if found
-   */
-  async searchForGithubRepo(projectName) {
-    console.log(`LOG: searchForGithubRepo - Searching for project: ${projectName}`);
-    try {
-      // Use a search API to find GitHub repos for this project
-      const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(projectName + ' solana')}`;
-      console.log(`LOG: searchForGithubRepo - Search URL: ${searchUrl}`);
-      
-      console.log('LOG: searchForGithubRepo - Sending GitHub API request');
-      const response = await axios.get(searchUrl, {
-        headers: {
-          'Authorization': `token ${process.env.GITHUB_TOKEN}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
-      
-      console.log(`LOG: searchForGithubRepo - Received response, item count: ${response.data.items?.length || 0}`);
-      if (response.data.items && response.data.items.length > 0) {
-        const url = response.data.items[0].html_url;
-        console.log(`LOG: searchForGithubRepo - Found repository: ${url}`);
-        return url;
-      }
-      
-      console.log('LOG: searchForGithubRepo - No matching repositories found');
-      return null;
-    } catch (error) {
-      console.error('ERROR: searchForGithubRepo -', error);
-      return null;
-    }
-  }
-
-  /**
    * Generate comprehensive investment analysis based on collected data
-   * @param {Object} githubData - GitHub repository analysis
    * @param {Object} contractAnalysis - Smart contract security analysis
-   * @param {Object} tokenMetrics - Token market data 
+   * @param {Object} tokenMetrics - Token market data
+   * @param {Object} onChainData - On-chain metrics analysis
+   * @param {Object} socialData - Social sentiment data
    * @returns {Object} Structured investment recommendation
    */
-  async assessInvestmentPotential(githubData, contractAnalysis, tokenMetrics) {
+  async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
     console.log('LOG: assessInvestmentPotential - Starting investment assessment');
-    console.log(`LOG: assessInvestmentPotential - Data available: GitHub=${!!githubData}, Contract=${!!contractAnalysis}, Token=${!!tokenMetrics}`);
+    console.log(`LOG: assessInvestmentPotential - Data available: Contract=${!!contractAnalysis}, Token=${!!tokenMetrics}, OnChain=${!!onChainData}, Social=${!!socialData}`);
     
     try {
       // Create analysis prompt
       console.log('LOG: assessInvestmentPotential - Creating analysis prompt');
       const prompt = `Analyze the following Solana cryptocurrency investment data and provide a detailed assessment.
       
-      GitHub Analysis Data:
-      ${JSON.stringify(githubData || {}, null, 2)}
-      
       Solana Program Security Analysis:
       ${JSON.stringify(contractAnalysis || {}, null, 2)}
       
       Token Metrics:
       ${JSON.stringify(tokenMetrics || {}, null, 2)}
+      
+      On-Chain Metrics Analysis:
+      ${JSON.stringify(onChainData || {}, null, 2)}
+      
+      Social Sentiment Analysis:
+      ${JSON.stringify(socialData || {}, null, 2)}
 
       Instructions:
       1. Analyze each aspect thoroughly
@@ -196,9 +159,9 @@ class ResearchBot {
 
       Return your analysis in this JSON format:
       {
-        "code_activity": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
         "smart_contract_risk": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
         "token_performance": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
+        "on_chain_metrics": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
         "social_sentiment": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
         "risk_reward_ratio": <0-5>,
         "confidence_score": <0-100>,
@@ -247,9 +210,9 @@ class ResearchBot {
       
       return {
         error: `Error generating recommendation: ${error.message}`,
-        code_activity: { rating: 0, comment: "", error: "Analysis failed" },
         smart_contract_risk: { rating: 0, comment: "", error: "Analysis failed" },
         token_performance: { rating: 0, comment: "", error: "Analysis failed" },
+        on_chain_metrics: { rating: 0, comment: "", error: "Analysis failed" },
         social_sentiment: { rating: 0, comment: "", error: "Analysis failed" },
         risk_reward_ratio: 0,
         confidence_score: 0,
@@ -377,69 +340,76 @@ class ResearchBot {
       
       // Set appropriate state based on input type
       console.log('LOG: processInitialQuery - Setting state based on input type');
-      if (inputAnalysis.type === 'github_url') {
-        this.state.githubUrl = inputAnalysis.value;
-        this.state.currentStep = 'github_research';
-        console.log(`LOG: processInitialQuery - Set GitHub URL: ${inputAnalysis.value}`);
-      } else if (inputAnalysis.type === 'contract_address') {
+      if (inputAnalysis.type === 'contract_address') {
         this.state.contractAddress = inputAnalysis.value;
         this.state.currentStep = 'contract_analysis';
         console.log(`LOG: processInitialQuery - Set contract address: ${inputAnalysis.value}`);
       } else {
         this.state.projectName = inputAnalysis.value;
-        this.state.currentStep = 'github_search';
+        this.state.currentStep = 'token_search';
         console.log(`LOG: processInitialQuery - Set project name: ${inputAnalysis.value}`);
       }
       
-      // Step 2: GitHub search if needed
-      if (this.state.currentStep === 'github_search') {
-        console.log('LOG: processInitialQuery - Step 2: Searching for GitHub repository');
-        const githubUrl = await this.searchForGithubRepo(this.state.projectName);
-        if (githubUrl) {
-          this.state.githubUrl = githubUrl;
-          this.state.currentStep = 'github_research';
-          console.log(`LOG: processInitialQuery - GitHub repository found: ${githubUrl}`);
-        } else {
-          console.log('LOG: processInitialQuery - No GitHub repository found');
-        }
-      }
-      
-      // Step 3: Analyze GitHub if URL available
-      if (this.state.githubUrl) {
-        console.log('LOG: processInitialQuery - Step 3: Analyzing GitHub repository');
-        this.state.githubData = await analyzeGithubRepo(this.state.githubUrl);
-        console.log('LOG: processInitialQuery - GitHub analysis complete');
-      } else {
-        console.log('LOG: processInitialQuery - Step 3: No GitHub URL available, skipping');
-      }
-      
-      // Step 4: Analyze contract if address available
+      // Step 2: Analyze contract if address available
       if (this.state.contractAddress) {
-        console.log('LOG: processInitialQuery - Step 4: Analyzing contract/program');
+        console.log('LOG: processInitialQuery - Step 2: Analyzing contract/program');
         this.state.contractData = await analyzeSolanaProgram(this.state.contractAddress, this.llm);
         console.log('LOG: processInitialQuery - Contract analysis complete');
         
-        // Extract token data from contract analysis instead of using tokenData.js
+        // Extract token data from contract analysis
         this.state.tokenData = this.extractTokenDataFromProgramAnalysis(this.state.contractData);
         console.log('LOG: processInitialQuery - Token data extracted from program analysis');
-      } else if (this.state.githubData && !this.state.githubData.error) {
-        // Try to find contract address in GitHub README or description
-        console.log('LOG: processInitialQuery - Step 4: No contract address, could look for one in GitHub data (not implemented)');
       } else {
-        console.log('LOG: processInitialQuery - Step 4: No contract address available, skipping');
+        console.log('LOG: processInitialQuery - Step 2: No contract address, skipping');
+      }
+
+      // Step 3: Analyze on-chain metrics if contract address is available
+      if (this.state.contractAddress) {
+        console.log('LOG: processInitialQuery - Step 3: Analyzing on-chain metrics');
+        try {
+          this.state.onChainData = await analyzeOnChainMetrics(this.state.contractAddress);
+          console.log('LOG: processInitialQuery - On-chain metrics analysis complete');
+        } catch (onChainError) {
+          console.error('ERROR: processInitialQuery - On-chain metrics analysis failed:', onChainError);
+          this.state.onChainData = { 
+            success: false, 
+            error: `On-chain metrics analysis failed: ${onChainError.message}`
+          };
+        }
+      } else {
+        console.log('LOG: processInitialQuery - Step 3: No contract address, skipping on-chain metrics');
+      }
+
+      // Step 4: Analyze social sentiment for the token/project
+      if (this.state.tokenData && !this.state.tokenData.error) {
+        console.log('LOG: processInitialQuery - Step 4: Analyzing social sentiment using token data');
+        // Pass the entire token data object to analyzeSocialSentiment
+        this.state.socialData = await analyzeSocialSentiment(this.state.tokenData);
+        console.log('LOG: processInitialQuery - Social sentiment analysis complete');
+      } else if (this.state.contractAddress) {
+        console.log(`LOG: processInitialQuery - Step 4: Analyzing social sentiment using contract address: ${this.state.contractAddress}`);
+        this.state.socialData = await analyzeSocialSentiment(this.state.contractAddress);
+        console.log('LOG: processInitialQuery - Social sentiment analysis complete');
+      } else if (this.state.projectName) {
+        console.log(`LOG: processInitialQuery - Step 4: Analyzing social sentiment using project name: ${this.state.projectName}`);
+        this.state.socialData = await analyzeSocialSentiment(this.state.projectName);
+        console.log('LOG: processInitialQuery - Social sentiment analysis complete');
+      } else {
+        console.log('LOG: processInitialQuery - Step 4: No token data, contract address, or project name available for social sentiment analysis');
+        this.state.socialData = null;
       }
       
-      // Step 6: Generate final analysis
-      console.log('LOG: processInitialQuery - Step 6: Generating final analysis');
-      if ((this.state.githubData && !this.state.githubData.error) || 
-          (this.state.contractData && !this.state.contractData.error) ||
+      // Step 5: Generate final analysis
+      console.log('LOG: processInitialQuery - Step 5: Generating final analysis');
+      if ((this.state.contractData && !this.state.contractData.error) ||
           (this.state.tokenData && !this.state.tokenData.error)) {
         
         console.log('LOG: processInitialQuery - Data available for analysis, generating recommendation');
         this.state.finalAnalysis = await this.assessInvestmentPotential(
-          this.state.githubData || {},
           this.state.contractData || {},
-          this.state.tokenData || {}
+          this.state.tokenData || {},
+          this.state.onChainData || {},
+          this.state.socialData || {}
         );
       } else {
         console.log('LOG: processInitialQuery - Insufficient data for analysis');

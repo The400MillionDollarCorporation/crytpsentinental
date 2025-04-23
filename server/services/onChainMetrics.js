@@ -1,6 +1,6 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import axios from 'axios';
-
+import { fetchAllTokenHolders } from './tokenHolders.js';
 // Initialize Solana connection
 const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
 
@@ -9,9 +9,11 @@ const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mai
  * @param {string} tokenAddress - Token mint address
  * @returns {Object} Transaction pattern analysis
  */
+// Update analyzeTransactionPatterns
+// Update analyzeTransactionPatterns
 async function analyzeTransactionPatterns(tokenAddress) {
   try {
-    // Get recent transactions
+    // Get recent signatures only first
     const signatures = await connection.getSignaturesForAddress(
       new PublicKey(tokenAddress),
       { limit: 100 }
@@ -20,53 +22,33 @@ async function analyzeTransactionPatterns(tokenAddress) {
     // Analyze transaction patterns
     const patterns = {
       total_transactions: signatures.length,
-      average_transaction_size: 0,
+      recent_signatures: signatures.slice(0, 10).map(sig => sig.signature),
       transaction_frequency: 0,
-      large_transactions: 0,
-      recent_activity: []
+      large_transactions: 0
     };
 
-    let totalSize = 0;
-    const now = Date.now();
-    const oneDayAgo = now - 24 * 60 * 60 * 1000;
-
-    // Process transactions
-    for (const sig of signatures) {
-      const tx = await connection.getTransaction(sig.signature);
+    // Calculate timeframe for frequency
+    if (signatures.length > 1) {
+      const oldestTimestamp = signatures[signatures.length - 1].blockTime || 0;
+      const newestTimestamp = signatures[0].blockTime || 0;
+      const timeSpan = newestTimestamp - oldestTimestamp;
       
-      if (tx) {
-        // Calculate transaction size
-        const size = tx.meta?.fee || 0;
-        totalSize += size;
-
-        // Check for large transactions
-        if (size > 1000) { // Arbitrary threshold
-          patterns.large_transactions++;
-        }
-
-        // Track recent activity
-        if (sig.blockTime && sig.blockTime * 1000 > oneDayAgo) {
-          patterns.recent_activity.push({
-            signature: sig.signature,
-            timestamp: new Date(sig.blockTime * 1000).toISOString(),
-            size: size
-          });
-        }
+      // Calculate transactions per hour if we have valid timestamps
+      if (timeSpan > 0) {
+        patterns.transaction_frequency = (signatures.length / (timeSpan / 3600)).toFixed(2);
       }
-    }
-
-    // Calculate averages
-    if (signatures.length > 0) {
-      patterns.average_transaction_size = totalSize / signatures.length;
-      patterns.transaction_frequency = signatures.length / 24; // Transactions per hour
     }
 
     return patterns;
   } catch (error) {
     console.error('Error analyzing transaction patterns:', error);
-    return { error: `Failed to analyze transaction patterns: ${error.message}` };
+    return { 
+      success: false,
+      error: `Failed to analyze transaction patterns: ${error.message}` 
+    };
   }
 }
+
 
 /**
  * Analyzes whale activity for a token
@@ -75,60 +57,38 @@ async function analyzeTransactionPatterns(tokenAddress) {
  */
 async function analyzeWhaleActivity(tokenAddress) {
   try {
-
-    const accounts = await connection.getProgramAccounts(
-      new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'), // Token Program
-      {
-        filters: [
-          {
-            memcmp: {
-              offset: 0,
-              bytes: tokenAddress
-            }
-          }
-        ]
-      }
-    );
-
-    // Analyze whale activity
-    const whaleAnalysis = {
-      total_holders: accounts.length,
-      top_holders: [],
-      whale_threshold: 0,
-      whale_count: 0
-    };
-
-    // Process accounts
-    for (const account of accounts) {
-      const accountInfo = await connection.getParsedAccountInfo(account.pubkey);
-      
-      if (accountInfo.value?.data) {
-        const balance = accountInfo.value.data.parsed.info.tokenAmount.uiAmount;
-        
-        // Track top holders
-        whaleAnalysis.top_holders.push({
-          address: account.pubkey.toString(),
-          balance: balance
-        });
-      }
+  
+    const holderData = await fetchAllTokenHolders(tokenAddress, {
+      maxPages: 3,
+      pageSize: 20,
+      showZeroBalance: false
+    });
+    
+    if (!holderData.success) {
+      throw new Error(holderData.error || 'Failed to fetch token holders');
     }
-
-    // Sort holders by balance
-    whaleAnalysis.top_holders.sort((a, b) => b.balance - a.balance);
-
-    // Calculate whale threshold (top 1%)
-    const whaleThresholdIndex = Math.floor(accounts.length * 0.01);
-    whaleAnalysis.whale_threshold = whaleAnalysis.top_holders[whaleThresholdIndex]?.balance || 0;
-
-    // Count whales
-    whaleAnalysis.whale_count = whaleAnalysis.top_holders.filter(
-      holder => holder.balance >= whaleAnalysis.whale_threshold
-    ).length;
-
+    
+    // Format the data for whale analysis
+    const whaleAnalysis = {
+      success: true,
+      total_holders: holderData.unique_holder_count,
+      top_holders: holderData.top_holders || [],
+      concentration_percentage: holderData.top10_concentration_percent || 0,
+      data_source: holderData.data_source
+    };
+    
+    // Add distribution data if available
+    if (holderData.holders_by_balance_range) {
+      whaleAnalysis.distribution = holderData.holders_by_balance_range;
+    }
+    
     return whaleAnalysis;
   } catch (error) {
     console.error('Error analyzing whale activity:', error);
-    return { error: `Failed to analyze whale activity: ${error.message}` };
+    return { 
+      success: false, 
+      error: `Failed to analyze whale activity: ${error.message}`
+    };
   }
 }
 
@@ -139,42 +99,63 @@ async function analyzeWhaleActivity(tokenAddress) {
  */
 async function analyzeLiquidityMetrics(tokenAddress) {
   try {
-    // Get liquidity data from Jupiter API
-    const response = await axios.get(
-      `https://price.jup.ag/v4/price?ids=${tokenAddress}`
-    );
-
-    const liquidityData = {
-      price: response.data?.data?.[tokenAddress]?.price || 0,
-      liquidity_pools: [],
-      total_liquidity: 0,
-      price_impact: 0
-    };
-
-    // Get liquidity pool information
-    const poolsResponse = await axios.get(
-      `https://price.jup.ag/v4/pools?ids=${tokenAddress}`
-    );
-
-    if (poolsResponse.data?.data) {
-      liquidityData.liquidity_pools = poolsResponse.data.data.map(pool => ({
-        pool_address: pool.address,
-        token_a: pool.tokenA,
-        token_b: pool.tokenB,
-        liquidity: pool.liquidity
-      }));
-
-      // Calculate total liquidity
-      liquidityData.total_liquidity = liquidityData.liquidity_pools.reduce(
-        (sum, pool) => sum + pool.liquidity,
-        0
-      );
+    // Try multiple sources with fallback
+    const sources = [
+      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+      `https://api.solanafm.com/v0/tokens/${tokenAddress}/market-info`
+    ];
+    
+    let data = null;
+    let source = '';
+    
+    // Try each source until one works
+    for (const url of sources) {
+      try {
+        const response = await axios.get(url, { timeout: 5000 });
+        if (response.data) {
+          data = response.data;
+          source = url;
+          break;
+        }
+      } catch (sourceError) {
+        console.log(`Source ${url} failed, trying next...`);
+      }
     }
-
+    
+    if (!data) {
+      throw new Error('All liquidity data sources failed');
+    }
+    
+    // Extract liquidity data based on which source worked
+    const liquidityData = {
+      success: true,
+      source: source,
+      price_usd: 0,
+      liquidity_usd: 0,
+      volume_24h: 0,
+      data_timestamp: new Date().toISOString()
+    };
+    
+    // Extract relevant fields (structure depends on which API worked)
+    if (source.includes('dexscreener')) {
+      const pairs = data.pairs || [];
+      if (pairs.length > 0) {
+        liquidityData.price_usd = parseFloat(pairs[0].priceUsd || 0);
+        liquidityData.liquidity_usd = parseFloat(pairs[0].liquidity?.usd || 0);
+        liquidityData.volume_24h = parseFloat(pairs[0].volume?.h24 || 0);
+      }
+    } else if (source.includes('solanafm')) {
+      // Extract from SolanaFM data structure
+      // Structure would depend on their API response
+    }
+    
     return liquidityData;
   } catch (error) {
     console.error('Error analyzing liquidity metrics:', error);
-    return { error: `Failed to analyze liquidity metrics: ${error.message}` };
+    return { 
+      success: false, 
+      error: `Failed to analyze liquidity metrics: ${error.message}`
+    };
   }
 }
 
@@ -185,19 +166,34 @@ async function analyzeLiquidityMetrics(tokenAddress) {
  */
 async function analyzeOnChainMetrics(tokenAddress) {
   try {
-    const transactionPatterns = await analyzeTransactionPatterns(tokenAddress);
-    const whaleActivity = await analyzeWhaleActivity(tokenAddress);
-    const liquidityMetrics = await analyzeLiquidityMetrics(tokenAddress);
-
+    // Run all analyses in parallel but catch errors for each
+    const [transactionResults, whaleResults, liquidityResults] = await Promise.allSettled([
+      analyzeTransactionPatterns(tokenAddress),
+      analyzeWhaleActivity(tokenAddress),
+      analyzeLiquidityMetrics(tokenAddress)
+    ]);
+    
+    // Prepare results, including any that failed
     return {
-      transaction_patterns: transactionPatterns,
-      whale_activity: whaleActivity,
-      liquidity_metrics: liquidityMetrics,
+      success: true,
+      transaction_patterns: transactionResults.status === 'fulfilled' ? transactionResults.value : { 
+        success: false, error: "Analysis failed" 
+      },
+      whale_activity: whaleResults.status === 'fulfilled' ? whaleResults.value : { 
+        success: false, error: "Analysis failed" 
+      },
+      liquidity_metrics: liquidityResults.status === 'fulfilled' ? liquidityResults.value : { 
+        success: false, error: "Analysis failed" 
+      },
       timestamp: new Date().toISOString()
     };
   } catch (error) {
     console.error('Error in on-chain metrics analysis:', error);
-    return { error: `Failed to analyze on-chain metrics: ${error.message}` };
+    return { 
+      success: false, 
+      error: `Failed to analyze on-chain metrics: ${error.message}`,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 
