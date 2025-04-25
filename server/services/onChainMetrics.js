@@ -126,13 +126,22 @@ async function analyzeLiquidityMetrics(tokenAddress) {
       throw new Error('All liquidity data sources failed');
     }
     
-    // Extract liquidity data based on which source worked
+    // Enhanced liquidity data with more market information
     const liquidityData = {
       success: true,
       source: source,
       price_usd: 0,
       liquidity_usd: 0,
       volume_24h: 0,
+      // New fields
+      token_name: null,
+      token_symbol: null,
+      market_cap: null,
+      fdv: null, // Fully Diluted Valuation
+      price_change_24h: null,
+      pair_address: null,
+      social_links: [],
+      websites: [],
       data_timestamp: new Date().toISOString()
     };
     
@@ -140,9 +149,35 @@ async function analyzeLiquidityMetrics(tokenAddress) {
     if (source.includes('dexscreener')) {
       const pairs = data.pairs || [];
       if (pairs.length > 0) {
-        liquidityData.price_usd = parseFloat(pairs[0].priceUsd || 0);
-        liquidityData.liquidity_usd = parseFloat(pairs[0].liquidity?.usd || 0);
-        liquidityData.volume_24h = parseFloat(pairs[0].volume?.h24 || 0);
+        // Get the first pair for basic info
+        const mainPair = pairs[0];
+        
+        liquidityData.price_usd = parseFloat(mainPair.priceUsd || 0);
+        liquidityData.liquidity_usd = parseFloat(mainPair.liquidity?.usd || 0);
+        liquidityData.volume_24h = parseFloat(mainPair.volume?.h24 || 0);
+        
+        // Extract new market data
+        liquidityData.token_name = mainPair.baseToken?.name || null;
+        liquidityData.token_symbol = mainPair.baseToken?.symbol || null;
+        liquidityData.market_cap = parseFloat(mainPair.marketCap || 0);
+        liquidityData.fdv = parseFloat(mainPair.fdv || 0);
+        liquidityData.price_change_24h = parseFloat(mainPair.priceChange?.h24 || 0);
+        liquidityData.pair_address = mainPair.pairAddress || null;
+        
+        // Extract social links and websites
+        if (mainPair.info) {
+          liquidityData.social_links = mainPair.info.socials || [];
+          liquidityData.websites = mainPair.info.websites || [];
+        }
+        
+        // Calculate extra metrics like buy/sell ratio if available
+        if (mainPair.txns && mainPair.txns.h24) {
+          const buys = mainPair.txns.h24.buys || 0;
+          const sells = mainPair.txns.h24.sells || 0;
+          if (sells > 0) {
+            liquidityData.buy_sell_ratio = parseFloat((buys / sells).toFixed(2));
+          }
+        }
       }
     } else if (source.includes('solanafm')) {
       // Extract from SolanaFM data structure
@@ -174,7 +209,7 @@ async function analyzeOnChainMetrics(tokenAddress) {
     ]);
     
     // Prepare results, including any that failed
-    return {
+    const result = {
       success: true,
       transaction_patterns: transactionResults.status === 'fulfilled' ? transactionResults.value : { 
         success: false, error: "Analysis failed" 
@@ -187,6 +222,26 @@ async function analyzeOnChainMetrics(tokenAddress) {
       },
       timestamp: new Date().toISOString()
     };
+    
+    // Extract key market information for top level access
+    if (liquidityResults.status === 'fulfilled' && liquidityResults.value.success) {
+      const metrics = liquidityResults.value;
+      
+      // Move important market metrics to the top level for easier access
+      result.market_data = {
+        token_name: metrics.token_name,
+        token_symbol: metrics.token_symbol,
+        price_usd: metrics.price_usd,
+        market_cap: metrics.market_cap,
+        fdv: metrics.fdv,
+        price_change_24h: metrics.price_change_24h,
+        volume_24h: metrics.volume_24h,
+        liquidity_usd: metrics.liquidity_usd,
+        buy_sell_ratio: metrics.buy_sell_ratio
+      };
+    }
+    
+    return result;
   } catch (error) {
     console.error('Error in on-chain metrics analysis:', error);
     return { 

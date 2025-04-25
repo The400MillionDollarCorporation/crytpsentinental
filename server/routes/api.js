@@ -16,6 +16,7 @@ function getBotInstance(sessionId) {
 }
 
 // Analyze endpoint - Initial query processing
+// Analyze endpoint - Initial query processing
 router.post('/analyze', async (req, res) => {
   try {
     const { query, session_id } = req.body;
@@ -27,8 +28,40 @@ router.post('/analyze', async (req, res) => {
     const bot = getBotInstance(session_id);
     const result = await bot.processInitialQuery(query);
     
+    // Extract token market data for a more concise response
+    let marketSummary = {};
+    
+    if (result.token_info) {
+      // If the LLM included token_info in the result, use it directly
+      marketSummary = {
+        token_name: result.token_info.name,
+        token_symbol: result.token_info.symbol,
+        price_usd: result.token_info.price_usd,
+        market_cap: result.token_info.market_cap,
+        fdv: result.token_info.fdv,
+        price_change_24h: result.token_info.price_change_24h
+      };
+    } else if (bot.state && bot.state.onChainData && bot.state.onChainData.market_data) {
+      // Use market data from onChainData if available
+      marketSummary = bot.state.onChainData.market_data;
+    } else if (bot.state && bot.state.onChainData && bot.state.onChainData.liquidity_metrics) {
+      // Fallback to liquidity metrics
+      const metrics = bot.state.onChainData.liquidity_metrics;
+      if (metrics.success) {
+        marketSummary = {
+          token_name: metrics.token_name,
+          token_symbol: metrics.token_symbol,
+          price_usd: metrics.price_usd,
+          market_cap: metrics.market_cap,
+          fdv: metrics.fdv,
+          price_change_24h: metrics.price_change_24h
+        };
+      }
+    }
+    
     res.status(200).json({
       result,
+      market_summary: marketSummary,
       has_trading_prompt: true
     });
   } catch (error) {

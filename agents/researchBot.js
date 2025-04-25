@@ -1,20 +1,18 @@
 // server/agents/researchBot.js
 import { ChatOpenAI } from '@langchain/openai';
-// import { fetchDexScreenerData } from '../../services/dexscreener.js';
-import { fetchDexScreenerData } from '../services/dexscreener.js';
 import axios from 'axios';
 import { parse } from 'url';
 
 // Import services
 import { 
   analyzeSolanaProgram, 
-} from '../services/solanaProgram.js';
+} from '../../services/solanaProgram.js';
 
 // Import social sentiment analysis service 
-import { analyzeSocialSentiment } from '../services/socialSentiment.js';
+import { analyzeSocialSentiment } from '../../services/socialSentiment.js';
 
 // Import on-chain metrics analysis service
-import { analyzeOnChainMetrics } from '../services/onChainMetrics.js';
+import { analyzeOnChainMetrics } from '../../services/onChainMetrics.js';
 
 /**
  * Agent state class to manage conversation and analysis state
@@ -121,153 +119,108 @@ class ResearchBot {
     }
   }
 
-/**
- * Generate comprehensive investment analysis based on collected data
- * @param {Object} contractAnalysis - Smart contract security analysis
- * @param {Object} tokenMetrics - Token market data
- * @param {Object} onChainData - On-chain metrics analysis
- * @param {Object} socialData - Social sentiment data
- * @returns {Object} Structured investment recommendation
- */
-async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
-  console.log('LOG: assessInvestmentPotential - Starting investment assessment');
-  console.log(`LOG: assessInvestmentPotential - Data available: Contract=${!!contractAnalysis}, Token=${!!tokenMetrics}, OnChain=${!!onChainData}, Social=${!!socialData}`);
-  
-  try {
-    // Extract market data for prompt enrichment
-    let marketData = {};
+  /**
+   * Generate comprehensive investment analysis based on collected data
+   * @param {Object} contractAnalysis - Smart contract security analysis
+   * @param {Object} tokenMetrics - Token market data
+   * @param {Object} onChainData - On-chain metrics analysis
+   * @param {Object} socialData - Social sentiment data
+   * @returns {Object} Structured investment recommendation
+   */
+  async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
+    console.log('LOG: assessInvestmentPotential - Starting investment assessment');
+    console.log(`LOG: assessInvestmentPotential - Data available: Contract=${!!contractAnalysis}, Token=${!!tokenMetrics}, OnChain=${!!onChainData}, Social=${!!socialData}`);
     
-    // Try to get market data from onChainData first (new structure)
-    if (onChainData && onChainData.market_data) {
-      marketData = onChainData.market_data;
-    } 
-    // Fallback to liquidity_metrics if available
-    else if (onChainData && onChainData.liquidity_metrics && onChainData.liquidity_metrics.success) {
-      const metrics = onChainData.liquidity_metrics;
-      marketData = {
-        token_name: metrics.token_name,
-        token_symbol: metrics.token_symbol,
-        price_usd: metrics.price_usd,
-        market_cap: metrics.market_cap,
-        fdv: metrics.fdv,
-        price_change_24h: metrics.price_change_24h
+    try {
+      // Create analysis prompt
+      console.log('LOG: assessInvestmentPotential - Creating analysis prompt');
+      const prompt = `Analyze the following Solana cryptocurrency investment data and provide a detailed assessment.
+      
+      Solana Program Security Analysis:
+      ${JSON.stringify(contractAnalysis || {}, null, 2)}
+      
+      Token Metrics:
+      ${JSON.stringify(tokenMetrics || {}, null, 2)}
+      
+      On-Chain Metrics Analysis:
+      ${JSON.stringify(onChainData || {}, null, 2)}
+      
+      Social Sentiment Analysis:
+      ${JSON.stringify(socialData || {}, null, 2)}
+
+      Instructions:
+      1. Analyze each aspect thoroughly
+      2. Provide ratings on a 0-10 scale (0 for missing/invalid data)
+      3. Include brief but specific comments
+      4. Note any data issues or anomalies as errors
+      5. Calculate risk/reward ratio (0-5) and confidence score (0-100%)
+      6. Provide a final investment recommendation
+      7. If data is missing or invalid, the error should be "Not enough data"
+
+      Return your analysis in this JSON format:
+      {
+        "smart_contract_risk": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
+        "token_performance": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
+        "on_chain_metrics": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
+        "social_sentiment": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
+        "risk_reward_ratio": <0-5>,
+        "confidence_score": <0-100>,
+        "final_recommendation": "<recommendation text>",
+        "timestamp": "<current ISO date>"
+      }`;
+      
+      console.log('LOG: assessInvestmentPotential - Sending prompt to LLM');
+      const response = await this.llm.predict(prompt);
+      console.log(`LOG: assessInvestmentPotential - Received LLM response, length: ${response.length}`);
+      
+      // Parse the result - the LLM should return JSON
+      let analysis;
+      try {
+        console.log('LOG: assessInvestmentPotential - Attempting to parse response as JSON');
+        analysis = JSON.parse(response);
+        console.log('LOG: assessInvestmentPotential - Successfully parsed JSON response');
+      } catch (parseError) {
+        console.error('ERROR: assessInvestmentPotential - JSON parse error:', parseError);
+        console.log('LOG: assessInvestmentPotential - Attempting alternative JSON extraction');
+        
+        // If JSON parsing fails, extract JSON from the response
+        const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
+                          response.match(/{[\s\S]*}/);
+        if (jsonMatch) {
+          console.log('LOG: assessInvestmentPotential - Found JSON match in response');
+          analysis = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+          console.log('LOG: assessInvestmentPotential - Successfully parsed extracted JSON');
+        } else {
+          console.error('ERROR: assessInvestmentPotential - No JSON pattern found in response');
+          throw new Error('Failed to parse LLM response as JSON');
+        }
+      }
+      
+      // Add timestamp if not present
+      if (!analysis.timestamp) {
+        console.log('LOG: assessInvestmentPotential - Adding missing timestamp');
+        analysis.timestamp = new Date().toISOString();
+      }
+      
+      console.log('LOG: assessInvestmentPotential - Assessment complete');
+      return analysis;
+    } catch (error) {
+      console.error('ERROR: assessInvestmentPotential -', error);
+      console.log('LOG: assessInvestmentPotential - Returning fallback analysis due to error');
+      
+      return {
+        error: `Error generating recommendation: ${error.message}`,
+        smart_contract_risk: { rating: 0, comment: "", error: "Analysis failed" },
+        token_performance: { rating: 0, comment: "", error: "Analysis failed" },
+        on_chain_metrics: { rating: 0, comment: "", error: "Analysis failed" },
+        social_sentiment: { rating: 0, comment: "", error: "Analysis failed" },
+        risk_reward_ratio: 0,
+        confidence_score: 0,
+        final_recommendation: "Analysis failed due to error",
+        timestamp: new Date().toISOString()
       };
     }
-    
-    // Create analysis prompt with enhanced market data
-    console.log('LOG: assessInvestmentPotential - Creating analysis prompt');
-    const prompt = `Analyze the following Solana cryptocurrency investment data and provide a detailed assessment.
-    
-    Token Market Data:
-    ${JSON.stringify(marketData || {}, null, 2)}
-    
-    Solana Program Security Analysis:
-    ${JSON.stringify(contractAnalysis || {}, null, 2)}
-    
-    Token Metrics:
-    ${JSON.stringify(tokenMetrics || {}, null, 2)}
-    
-    On-Chain Metrics Analysis:
-    ${JSON.stringify(onChainData || {}, null, 2)}
-    
-    Social Sentiment Analysis:
-    ${JSON.stringify(socialData || {}, null, 2)}
-
-    Instructions:
-    1. Analyze each aspect thoroughly
-    2. Provide ratings on a 0-10 scale (0 for missing/invalid data)
-    3. Include brief but specific comments
-    4. Note any data issues or anomalies as errors
-    5. Calculate risk/reward ratio (0-5) and confidence score (0-100%)
-    6. Provide a final investment recommendation
-    7. If data is missing or invalid, the error should be "Not enough data"
-
-    Return your analysis in this JSON format:
-    {
-      "token_info": {
-        "name": "<token name>",
-        "symbol": "<token symbol>",
-        "price_usd": <price>,
-        "market_cap": <market cap>,
-        "fdv": <fully diluted valuation>,
-        "price_change_24h": <24h price change percent>
-      },
-      "smart_contract_risk": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "token_performance": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "on_chain_metrics": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "social_sentiment": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "risk_reward_ratio": <0-5>,
-      "confidence_score": <0-100>,
-      "final_recommendation": "<recommendation text>",
-      "timestamp": "<current ISO date>"
-    }`;
-    
-    console.log('LOG: assessInvestmentPotential - Sending prompt to LLM');
-    const response = await this.llm.predict(prompt);
-    console.log(`LOG: assessInvestmentPotential - Received LLM response, length: ${response.length}`);
-    
-    // Parse the result - the LLM should return JSON
-    let analysis;
-    try {
-      console.log('LOG: assessInvestmentPotential - Attempting to parse response as JSON');
-      analysis = JSON.parse(response);
-      console.log('LOG: assessInvestmentPotential - Successfully parsed JSON response');
-    } catch (parseError) {
-      console.error('ERROR: assessInvestmentPotential - JSON parse error:', parseError);
-      console.log('LOG: assessInvestmentPotential - Attempting alternative JSON extraction');
-      
-      // If JSON parsing fails, extract JSON from the response
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
-                        response.match(/{[\s\S]*}/);
-      if (jsonMatch) {
-        console.log('LOG: assessInvestmentPotential - Found JSON match in response');
-        analysis = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-        console.log('LOG: assessInvestmentPotential - Successfully parsed extracted JSON');
-      } else {
-        console.error('ERROR: assessInvestmentPotential - No JSON pattern found in response');
-        throw new Error('Failed to parse LLM response as JSON');
-      }
-    }
-    
-    // Add timestamp if not present
-    if (!analysis.timestamp) {
-      console.log('LOG: assessInvestmentPotential - Adding missing timestamp');
-      analysis.timestamp = new Date().toISOString();
-    }
-    
-    // Add token info if not present but available in our data
-    if (!analysis.token_info && Object.keys(marketData).length > 0) {
-      console.log('LOG: assessInvestmentPotential - Adding missing token_info from market data');
-      analysis.token_info = marketData;
-    }
-    
-    console.log('LOG: assessInvestmentPotential - Assessment complete');
-    return analysis;
-  } catch (error) {
-    console.error('ERROR: assessInvestmentPotential -', error);
-    console.log('LOG: assessInvestmentPotential - Returning fallback analysis due to error');
-    
-    return {
-      error: `Error generating recommendation: ${error.message}`,
-      token_info: {
-        name: "Unknown",
-        symbol: "Unknown",
-        price_usd: 0,
-        market_cap: 0,
-        fdv: 0,
-        price_change_24h: 0
-      },
-      smart_contract_risk: { rating: 0, comment: "", error: "Analysis failed" },
-      token_performance: { rating: 0, comment: "", error: "Analysis failed" },
-      on_chain_metrics: { rating: 0, comment: "", error: "Analysis failed" },
-      social_sentiment: { rating: 0, comment: "", error: "Analysis failed" },
-      risk_reward_ratio: 0,
-      confidence_score: 0,
-      final_recommendation: "Analysis failed due to error",
-      timestamp: new Date().toISOString()
-    };
   }
-}
 
   /**
    * Handle follow-up questions using the conversation history
@@ -409,41 +362,7 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
       } else {
         console.log('LOG: processInitialQuery - Step 2: No contract address, skipping');
       }
-  
-      // NEW STEP: Fetch DexScreener data for market metrics
-      if (this.state.contractAddress) {
-        console.log('LOG: processInitialQuery - Fetching DexScreener market data');
-        try {
-          this.state.marketData = await fetchDexScreenerData(this.state.contractAddress);
-          console.log('LOG: processInitialQuery - DexScreener data fetched successfully');
-          
-          // If token data is missing or limited, enhance it with DexScreener data
-          if (this.state.marketData.success && (!this.state.tokenData || !this.state.tokenData.name)) {
-            console.log('LOG: processInitialQuery - Enhancing token data with DexScreener info');
-            
-            if (!this.state.tokenData) {
-              this.state.tokenData = {};
-            }
-            
-            // Add or update token data with DexScreener information
-            this.state.tokenData.name = this.state.tokenData.name || this.state.marketData.token_name;
-            this.state.tokenData.symbol = this.state.tokenData.symbol || this.state.marketData.token_symbol;
-            this.state.tokenData.market_cap = this.state.marketData.market_cap;
-            this.state.tokenData.fdv = this.state.marketData.fdv;
-            this.state.tokenData.price_usd = this.state.marketData.price_usd;
-            this.state.tokenData.liquidity_usd = this.state.marketData.liquidity_usd;
-            this.state.tokenData.volume_24h = this.state.marketData.volume_24h;
-            this.state.tokenData.price_change_24h = this.state.marketData.price_change.h24;
-          }
-        } catch (marketError) {
-          console.error('ERROR: processInitialQuery - DexScreener analysis failed:', marketError);
-          this.state.marketData = { 
-            success: false, 
-            error: `Market data analysis failed: ${marketError.message}`
-          };
-        }
-      }
-  
+
       // Step 3: Analyze on-chain metrics if contract address is available
       if (this.state.contractAddress) {
         console.log('LOG: processInitialQuery - Step 3: Analyzing on-chain metrics');
@@ -460,7 +379,7 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
       } else {
         console.log('LOG: processInitialQuery - Step 3: No contract address, skipping on-chain metrics');
       }
-  
+
       // Step 4: Analyze social sentiment for the token/project
       if (this.state.tokenData && !this.state.tokenData.error) {
         console.log('LOG: processInitialQuery - Step 4: Analyzing social sentiment using token data');
@@ -492,18 +411,6 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
           this.state.onChainData || {},
           this.state.socialData || {}
         );
-        
-        // Ensure market data is included in the response
-        if (!this.state.finalAnalysis.token_info && this.state.marketData && this.state.marketData.success) {
-          this.state.finalAnalysis.token_info = {
-            name: this.state.marketData.token_name,
-            symbol: this.state.marketData.token_symbol,
-            price_usd: this.state.marketData.price_usd,
-            market_cap: this.state.marketData.market_cap,
-            fdv: this.state.marketData.fdv,
-            price_change_24h: this.state.marketData.price_change.h24
-          };
-        }
       } else {
         console.log('LOG: processInitialQuery - Insufficient data for analysis');
         this.state.finalAnalysis = {
