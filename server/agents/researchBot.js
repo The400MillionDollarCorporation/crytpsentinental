@@ -241,6 +241,48 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
       analysis.token_info = marketData;
     }
     
+    // Add social media links if available in the social data
+    if (socialData) {
+      console.log('LOG: assessInvestmentPotential - Processing social data for links');
+      
+      // Check if social data has socials array
+      if (socialData.socials && Array.isArray(socialData.socials)) {
+        analysis.socials = socialData.socials;
+        console.log(`LOG: assessInvestmentPotential - Added ${socialData.socials.length} social media links`);
+      }
+      
+      // Check if social data has links.socials
+      else if (socialData.links && socialData.links.socials && Array.isArray(socialData.links.socials)) {
+        analysis.socials = socialData.links.socials;
+        console.log(`LOG: assessInvestmentPotential - Added ${socialData.links.socials.length} social media links from links property`);
+      }
+      
+      // Extract website if available
+      if (socialData.website) {
+        analysis.website = socialData.website;
+        console.log('LOG: assessInvestmentPotential - Added website from social data');
+      } else if (socialData.links && socialData.links.website) {
+        analysis.website = socialData.links.website;
+        console.log('LOG: assessInvestmentPotential - Added website from links property');
+      }
+      
+      // If there's twitter handle info in the social data, make sure it's in the results
+      if (socialData.twitter && socialData.twitter.twitter_handle && socialData.twitter.twitter_handle !== "Not found") {
+        if (!analysis.socials) analysis.socials = [];
+        
+        // Check if Twitter is already in the socials list
+        const hasTwitter = analysis.socials.some(social => social.type === 'twitter');
+        
+        if (!hasTwitter) {
+          analysis.socials.push({
+            type: 'twitter',
+            url: `https://x.com/${socialData.twitter.twitter_handle}`
+          });
+          console.log(`LOG: assessInvestmentPotential - Added Twitter handle from sentiment data: ${socialData.twitter.twitter_handle}`);
+        }
+      }
+    }
+    
     console.log('LOG: assessInvestmentPotential - Assessment complete');
     return analysis;
   } catch (error) {
@@ -366,174 +408,201 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
     }
   }
 
-  /**
-   * Process the initial research query
-   * @param {string} query - User's initial query 
-   * @returns {Object} Analysis results
-   */
-  async processInitialQuery(query) {
-    console.log(`LOG: processInitialQuery - Processing query: ${query}`);
-    
-    console.log('LOG: processInitialQuery - Creating new agent state');
-    this.state = new AgentState();
-    this.state.messages.push({ role: 'user', content: query });
-    
-    try {
-      // Step 1: Analyze input type
-      console.log('LOG: processInitialQuery - Step 1: Analyzing input type');
-      const inputAnalysis = await this.analyzeUserInput(query);
-      this.state.inputType = inputAnalysis.type;
-      console.log(`LOG: processInitialQuery - Input analysis complete, type: ${inputAnalysis.type}`);
-      
-      // Set appropriate state based on input type
-      console.log('LOG: processInitialQuery - Setting state based on input type');
-      if (inputAnalysis.type === 'contract_address') {
-        this.state.contractAddress = inputAnalysis.value;
-        this.state.currentStep = 'contract_analysis';
-        console.log(`LOG: processInitialQuery - Set contract address: ${inputAnalysis.value}`);
-      } else {
-        this.state.projectName = inputAnalysis.value;
-        this.state.currentStep = 'token_search';
-        console.log(`LOG: processInitialQuery - Set project name: ${inputAnalysis.value}`);
-      }
-      
-      // Step 2: Analyze contract if address available
-      if (this.state.contractAddress) {
-        console.log('LOG: processInitialQuery - Step 2: Analyzing contract/program');
-        this.state.contractData = await analyzeSolanaProgram(this.state.contractAddress, this.llm);
-        console.log('LOG: processInitialQuery - Contract analysis complete');
-        
-        // Extract token data from contract analysis
-        this.state.tokenData = this.extractTokenDataFromProgramAnalysis(this.state.contractData);
-        console.log('LOG: processInitialQuery - Token data extracted from program analysis');
-      } else {
-        console.log('LOG: processInitialQuery - Step 2: No contract address, skipping');
-      }
+/**
+ * Process the initial research query
+ * @param {string} query - User's initial query 
+ * @returns {Object} Analysis results
+ */
+async processInitialQuery(query) {
+  console.log(`LOG: processInitialQuery - Processing query: ${query}`);
   
-      // NEW STEP: Fetch DexScreener data for market metrics
-      if (this.state.contractAddress) {
-        console.log('LOG: processInitialQuery - Fetching DexScreener market data');
-        try {
-          this.state.marketData = await fetchDexScreenerData(this.state.contractAddress);
-          console.log('LOG: processInitialQuery - DexScreener data fetched successfully');
+  console.log('LOG: processInitialQuery - Creating new agent state');
+  this.state = new AgentState();
+  this.state.messages.push({ role: 'user', content: query });
+  
+  try {
+    // Step 1: Analyze input type
+    console.log('LOG: processInitialQuery - Step 1: Analyzing input type');
+    const inputAnalysis = await this.analyzeUserInput(query);
+    this.state.inputType = inputAnalysis.type;
+    console.log(`LOG: processInitialQuery - Input analysis complete, type: ${inputAnalysis.type}`);
+    
+    // Set appropriate state based on input type
+    console.log('LOG: processInitialQuery - Setting state based on input type');
+    if (inputAnalysis.type === 'contract_address') {
+      this.state.contractAddress = inputAnalysis.value;
+      this.state.currentStep = 'contract_analysis';
+      console.log(`LOG: processInitialQuery - Set contract address: ${inputAnalysis.value}`);
+    } else {
+      this.state.projectName = inputAnalysis.value;
+      this.state.currentStep = 'token_search';
+      console.log(`LOG: processInitialQuery - Set project name: ${inputAnalysis.value}`);
+    }
+    
+    // Step 2: Analyze contract if address available
+    if (this.state.contractAddress) {
+      console.log('LOG: processInitialQuery - Step 2: Analyzing contract/program');
+      this.state.contractData = await analyzeSolanaProgram(this.state.contractAddress, this.llm);
+      console.log('LOG: processInitialQuery - Contract analysis complete');
+      
+      // Extract token data from contract analysis
+      this.state.tokenData = this.extractTokenDataFromProgramAnalysis(this.state.contractData);
+      console.log('LOG: processInitialQuery - Token data extracted from program analysis');
+    } else {
+      console.log('LOG: processInitialQuery - Step 2: No contract address, skipping');
+    }
+
+    // NEW STEP: Fetch DexScreener data for market metrics
+    if (this.state.contractAddress) {
+      console.log('LOG: processInitialQuery - Fetching DexScreener market data');
+      try {
+        this.state.marketData = await fetchDexScreenerData(this.state.contractAddress);
+        console.log('LOG: processInitialQuery - DexScreener data fetched successfully');
+        
+        // If token data is missing or limited, enhance it with DexScreener data
+        if (this.state.marketData.success && (!this.state.tokenData || !this.state.tokenData.name)) {
+          console.log('LOG: processInitialQuery - Enhancing token data with DexScreener info');
           
-          // If token data is missing or limited, enhance it with DexScreener data
-          if (this.state.marketData.success && (!this.state.tokenData || !this.state.tokenData.name)) {
-            console.log('LOG: processInitialQuery - Enhancing token data with DexScreener info');
-            
-            if (!this.state.tokenData) {
-              this.state.tokenData = {};
-            }
-            
-            // Add or update token data with DexScreener information
-            this.state.tokenData.name = this.state.tokenData.name || this.state.marketData.token_name;
-            this.state.tokenData.symbol = this.state.tokenData.symbol || this.state.marketData.token_symbol;
-            this.state.tokenData.market_cap = this.state.marketData.market_cap;
-            this.state.tokenData.fdv = this.state.marketData.fdv;
-            this.state.tokenData.price_usd = this.state.marketData.price_usd;
-            this.state.tokenData.liquidity_usd = this.state.marketData.liquidity_usd;
-            this.state.tokenData.volume_24h = this.state.marketData.volume_24h;
-            this.state.tokenData.price_change_24h = this.state.marketData.price_change.h24;
+          if (!this.state.tokenData) {
+            this.state.tokenData = {};
           }
-        } catch (marketError) {
-          console.error('ERROR: processInitialQuery - DexScreener analysis failed:', marketError);
-          this.state.marketData = { 
-            success: false, 
-            error: `Market data analysis failed: ${marketError.message}`
-          };
+          
+          // Add or update token data with DexScreener information
+          this.state.tokenData.name = this.state.tokenData.name || this.state.marketData.token_name;
+          this.state.tokenData.symbol = this.state.tokenData.symbol || this.state.marketData.token_symbol;
+          this.state.tokenData.market_cap = this.state.marketData.market_cap;
+          this.state.tokenData.fdv = this.state.marketData.fdv;
+          this.state.tokenData.price_usd = this.state.marketData.price_usd;
+          this.state.tokenData.liquidity_usd = this.state.marketData.liquidity_usd;
+          this.state.tokenData.volume_24h = this.state.marketData.volume_24h;
+          this.state.tokenData.price_change_24h = this.state.marketData.price_change?.h24;
         }
+      } catch (marketError) {
+        console.error('ERROR: processInitialQuery - DexScreener analysis failed:', marketError);
+        this.state.marketData = { 
+          success: false, 
+          error: `Market data analysis failed: ${marketError.message}`
+        };
       }
-  
-      // Step 3: Analyze on-chain metrics if contract address is available
-      if (this.state.contractAddress) {
-        console.log('LOG: processInitialQuery - Step 3: Analyzing on-chain metrics');
-        try {
-          this.state.onChainData = await analyzeOnChainMetrics(this.state.contractAddress);
-          console.log('LOG: processInitialQuery - On-chain metrics analysis complete');
-        } catch (onChainError) {
-          console.error('ERROR: processInitialQuery - On-chain metrics analysis failed:', onChainError);
-          this.state.onChainData = { 
-            success: false, 
-            error: `On-chain metrics analysis failed: ${onChainError.message}`
-          };
-        }
-      } else {
-        console.log('LOG: processInitialQuery - Step 3: No contract address, skipping on-chain metrics');
-      }
-  
-      // Step 4: Analyze social sentiment for the token/project
-      if (this.state.tokenData && !this.state.tokenData.error) {
-        console.log('LOG: processInitialQuery - Step 4: Analyzing social sentiment using token data');
-        // Pass the entire token data object to analyzeSocialSentiment
-        this.state.socialData = await analyzeSocialSentiment(this.state.tokenData);
-        console.log('LOG: processInitialQuery - Social sentiment analysis complete');
-      } else if (this.state.contractAddress) {
-        console.log(`LOG: processInitialQuery - Step 4: Analyzing social sentiment using contract address: ${this.state.contractAddress}`);
-        this.state.socialData = await analyzeSocialSentiment(this.state.contractAddress);
-        console.log('LOG: processInitialQuery - Social sentiment analysis complete');
-      } else if (this.state.projectName) {
-        console.log(`LOG: processInitialQuery - Step 4: Analyzing social sentiment using project name: ${this.state.projectName}`);
-        this.state.socialData = await analyzeSocialSentiment(this.state.projectName);
-        console.log('LOG: processInitialQuery - Social sentiment analysis complete');
-      } else {
-        console.log('LOG: processInitialQuery - Step 4: No token data, contract address, or project name available for social sentiment analysis');
-        this.state.socialData = null;
-      }
-      
-      // Step 5: Generate final analysis
-      console.log('LOG: processInitialQuery - Step 5: Generating final analysis');
-      if ((this.state.contractData && !this.state.contractData.error) ||
-          (this.state.tokenData && !this.state.tokenData.error)) {
+    }
+
+    // Step 3: Analyze on-chain metrics if contract address is available
+    if (this.state.contractAddress) {
+      console.log('LOG: processInitialQuery - Step 3: Analyzing on-chain metrics');
+      try {
+        this.state.onChainData = await analyzeOnChainMetrics(this.state.contractAddress);
+        console.log('LOG: processInitialQuery - On-chain metrics analysis complete');
         
-        console.log('LOG: processInitialQuery - Data available for analysis, generating recommendation');
-        this.state.finalAnalysis = await this.assessInvestmentPotential(
-          this.state.contractData || {},
-          this.state.tokenData || {},
-          this.state.onChainData || {},
-          this.state.socialData || {}
-        );
-        
-        // Ensure market data is included in the response
-        if (!this.state.finalAnalysis.token_info && this.state.marketData && this.state.marketData.success) {
-          this.state.finalAnalysis.token_info = {
-            name: this.state.marketData.token_name,
-            symbol: this.state.marketData.token_symbol,
+        // If we have market data from DexScreener, add it to onChainData
+        if (this.state.marketData && this.state.marketData.success) {
+          console.log('LOG: processInitialQuery - Adding market data to on-chain data');
+          this.state.onChainData.market_data = {
             price_usd: this.state.marketData.price_usd,
             market_cap: this.state.marketData.market_cap,
             fdv: this.state.marketData.fdv,
-            price_change_24h: this.state.marketData.price_change.h24
+            liquidity_usd: this.state.marketData.liquidity_usd,
+            volume_24h: this.state.marketData.volume_24h,
+            price_change_24h: this.state.marketData.price_change?.h24
           };
         }
-      } else {
-        console.log('LOG: processInitialQuery - Insufficient data for analysis');
-        this.state.finalAnalysis = {
-          error: "Unable to gather sufficient data for analysis",
-          final_recommendation: "Unable to provide recommendation due to insufficient data"
+      } catch (onChainError) {
+        console.error('ERROR: processInitialQuery - On-chain metrics analysis failed:', onChainError);
+        this.state.onChainData = { 
+          success: false, 
+          error: `On-chain metrics analysis failed: ${onChainError.message}`
+        };
+      }
+    } else {
+      console.log('LOG: processInitialQuery - Step 3: No contract address, skipping on-chain metrics');
+    }
+
+    // Step 4: Analyze social sentiment for the token/project
+    if (this.state.tokenData && !this.state.tokenData.error) {
+      console.log('LOG: processInitialQuery - Step 4: Analyzing social sentiment using token data');
+      // Pass the entire token data object to analyzeSocialSentiment
+      this.state.socialData = await analyzeSocialSentiment(this.state.tokenData);
+      console.log('LOG: processInitialQuery - Social sentiment analysis complete');
+    } else if (this.state.contractAddress) {
+      console.log(`LOG: processInitialQuery - Step 4: Analyzing social sentiment using contract address: ${this.state.contractAddress}`);
+      this.state.socialData = await analyzeSocialSentiment(this.state.contractAddress);
+      console.log('LOG: processInitialQuery - Social sentiment analysis complete');
+    } else if (this.state.projectName) {
+      console.log(`LOG: processInitialQuery - Step 4: Analyzing social sentiment using project name: ${this.state.projectName}`);
+      this.state.socialData = await analyzeSocialSentiment(this.state.projectName);
+      console.log('LOG: processInitialQuery - Social sentiment analysis complete');
+    } else {
+      console.log('LOG: processInitialQuery - Step 4: No token data, contract address, or project name available for social sentiment analysis');
+      this.state.socialData = null;
+    }
+    
+    // Step 5: Generate final analysis
+    console.log('LOG: processInitialQuery - Step 5: Generating final analysis');
+    if ((this.state.contractData && !this.state.contractData.error) ||
+        (this.state.tokenData && !this.state.tokenData.error) ||
+        (this.state.marketData && this.state.marketData.success)) {
+      
+      console.log('LOG: processInitialQuery - Data available for analysis, generating recommendation');
+      this.state.finalAnalysis = await this.assessInvestmentPotential(
+        this.state.contractData || {},
+        this.state.tokenData || {},
+        this.state.onChainData || {},
+        this.state.socialData || {}
+      );
+      
+      // Ensure market data is included in the response
+      if (!this.state.finalAnalysis.token_info && this.state.marketData && this.state.marketData.success) {
+        this.state.finalAnalysis.token_info = {
+          name: this.state.marketData.token_name,
+          symbol: this.state.marketData.token_symbol,
+          price_usd: this.state.marketData.price_usd,
+          market_cap: this.state.marketData.market_cap,
+          fdv: this.state.marketData.fdv,
+          price_change_24h: this.state.marketData.price_change?.h24
         };
       }
       
-      // Add trading prompt
-      console.log('LOG: processInitialQuery - Adding trading prompt to final analysis');
-      const tradingPrompt = "\n\nWould you like me to execute a token purchase for you? (yes/no): ";
+      // Add socials directly from DexScreener if available and not already in the analysis
+      if (!this.state.finalAnalysis.socials && this.state.marketData && this.state.marketData.success && 
+          this.state.marketData.links && this.state.marketData.links.socials) {
+        console.log('LOG: processInitialQuery - Adding social links from DexScreener to final analysis');
+        this.state.finalAnalysis.socials = this.state.marketData.links.socials;
+      }
       
-      // Save conversation history
-      console.log('LOG: processInitialQuery - Saving conversation history');
-      this.state.addToHistory('user', query);
-      this.state.addToHistory('assistant', JSON.stringify(this.state.finalAnalysis));
-      
-      console.log('LOG: processInitialQuery - Processing complete, returning final analysis');
-      return this.state.finalAnalysis;
-      
-    } catch (error) {
-      console.error('ERROR: processInitialQuery -', error);
-      console.log('LOG: processInitialQuery - Returning error response due to failure');
-      
-      return {
-        error: `Analysis failed: ${error.message}`,
-        final_recommendation: "Analysis failed due to an unexpected error"
+      // Add website if available and not already in the analysis
+      if (!this.state.finalAnalysis.website && this.state.marketData && this.state.marketData.success && 
+          this.state.marketData.links && this.state.marketData.links.website) {
+        this.state.finalAnalysis.website = this.state.marketData.links.website;
+      }
+    } else {
+      console.log('LOG: processInitialQuery - Insufficient data for analysis');
+      this.state.finalAnalysis = {
+        error: "Unable to gather sufficient data for analysis",
+        final_recommendation: "Unable to provide recommendation due to insufficient data"
       };
     }
+    
+    // Add trading prompt
+    console.log('LOG: processInitialQuery - Adding trading prompt to final analysis');
+    const tradingPrompt = "\n\nWould you like me to execute a token purchase for you? (yes/no): ";
+    
+    // Save conversation history
+    console.log('LOG: processInitialQuery - Saving conversation history');
+    this.state.addToHistory('user', query);
+    this.state.addToHistory('assistant', JSON.stringify(this.state.finalAnalysis));
+    
+    console.log('LOG: processInitialQuery - Processing complete, returning final analysis');
+    return this.state.finalAnalysis;
+    
+  } catch (error) {
+    console.error('ERROR: processInitialQuery -', error);
+    console.log('LOG: processInitialQuery - Returning error response due to failure');
+    
+    return {
+      error: `Analysis failed: ${error.message}`,
+      final_recommendation: "Analysis failed due to an unexpected error"
+    };
   }
+}
 
   /**
    * Process user's trading decision
