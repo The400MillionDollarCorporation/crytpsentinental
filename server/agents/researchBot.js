@@ -154,9 +154,11 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
       };
     }
     
-    // Create analysis prompt with enhanced market data
+    // Create analysis prompt with enhanced market data and better instructions
     console.log('LOG: assessInvestmentPotential - Creating analysis prompt');
-    const prompt = `Analyze the following Solana cryptocurrency investment data and provide a detailed assessment.
+    const prompt = `You are a professional cryptocurrency analyst specializing in Solana tokens. Provide a detailed, data-driven assessment of this token based on the following information.
+
+    TOKEN DATA FOR ANALYSIS:
     
     Token Market Data:
     ${JSON.stringify(marketData || {}, null, 2)}
@@ -173,16 +175,43 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
     Social Sentiment Analysis:
     ${JSON.stringify(socialData || {}, null, 2)}
 
-    Instructions:
-    1. Analyze each aspect thoroughly
-    2. Provide ratings on a 0-10 scale (0 for missing/invalid data)
-    3. Include brief but specific comments
-    4. Note any data issues or anomalies as errors
-    5. Calculate risk/reward ratio (0-5) and confidence score (0-100%)
-    6. Provide a final investment recommendation
-    7. If data is missing or invalid, the error should be "Not enough data"
+    ANALYSIS REQUIREMENTS:
+    
+    1. SMART CONTRACT RISK ASSESSMENT:
+       - Rate security from 0-10 (higher is safer)
+       - Specifically analyze: mint authority control, ownership concentration, code quality
+       - Highlight any red flags or backdoors
+       - For unknown factors, explicitly state what information is missing
+       
+    2. TOKEN PERFORMANCE ANALYSIS:
+       - Rate performance from 0-10 (higher is better)
+       - Analyze specific metrics: price movement, liquidity depth, volume
+       - Compare current price to historical trends if data available
+       - Include specific numerical data points, not generic statements
+       
+    3. ON-CHAIN METRICS EVALUATION:
+       - Rate on-chain health from 0-10 (higher is better)
+       - Analyze transaction patterns, whale activity, holder distribution
+       - Provide specific holder counts, whale percentages, or transaction frequencies
+       - Note any suspicious on-chain activities (wash trading, etc.)
+       
+    4. SOCIAL SENTIMENT EVALUATION:
+       - Rate social sentiment from 0-10 (higher is better)
+       - Include specific data points about community size or engagement if available
+       - Mention specific platforms where token is discussed (Twitter, Telegram, etc.)
+       - Note if sentiment data is limited or unavailable
+       
+    5. OVERALL INVESTMENT ASSESSMENT:
+       - Calculate a risk/reward ratio (0-5 scale)
+       - Provide a confidence score (0-100%)
+       - Deliver a detailed, specific recommendation with timeframe considerations
+       - Mention specific catalysts or risk factors unique to this token
+       
+    6. DO NOT USE GENERIC PHRASES like "The token shows promise" or "Further research is recommended"
+       Instead, give concrete insights based on the specific data provided.
 
-    Return your analysis in this JSON format:
+    OUTPUT FORMAT:
+    Return your analysis as a JSON object with the following structure:
     {
       "token_info": {
         "name": "<token name>",
@@ -192,13 +221,41 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
         "fdv": <fully diluted valuation>,
         "price_change_24h": <24h price change percent>
       },
-      "smart_contract_risk": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "token_performance": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "on_chain_metrics": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
-      "social_sentiment": { "rating": <0-10>, "comment": "<comment>", "error": "<error or null>" },
+      "smart_contract_risk": { 
+        "rating": <0-10>, 
+        "comment": "<detailed security analysis with specific findings>", 
+        "key_risks": ["<specific risk 1>", "<specific risk 2>"],
+        "error": "<error or null>" 
+      },
+      "token_performance": { 
+        "rating": <0-10>, 
+        "comment": "<detailed performance analysis with specific metrics>", 
+        "key_metrics": {
+          "liquidity_rating": <0-10>,
+          "volume_rating": <0-10>,
+          "price_stability": <0-10>
+        },
+        "error": "<error or null>" 
+      },
+      "on_chain_metrics": { 
+        "rating": <0-10>, 
+        "comment": "<detailed on-chain analysis with specific patterns>", 
+        "holder_distribution": "<specific insight about token distribution>",
+        "transaction_patterns": "<specific insight about transaction activity>",
+        "error": "<error or null>" 
+      },
+      "social_sentiment": { 
+        "rating": <0-10>, 
+        "comment": "<detailed sentiment analysis with specific platforms mentioned>", 
+        "community_strength": "<specific assessment of community>",
+        "error": "<error or null>" 
+      },
       "risk_reward_ratio": <0-5>,
       "confidence_score": <0-100>,
-      "final_recommendation": "<recommendation text>",
+      "investment_timeframe": "<short/medium/long-term potential assessment>",
+      "specific_catalysts": ["<catalyst 1>", "<catalyst 2>"],
+      "specific_concerns": ["<concern 1>", "<concern 2>"],
+      "final_recommendation": "<detailed, token-specific recommendation>",
       "timestamp": "<current ISO date>"
     }`;
     
@@ -283,6 +340,19 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
       }
     }
     
+    // Enhance with market summary for quick reference
+    analysis.market_summary = {
+      token_name: analysis.token_info?.name || "Unknown",
+      token_symbol: analysis.token_info?.symbol || "Unknown",
+      price_usd: analysis.token_info?.price_usd || 0,
+      market_cap: analysis.token_info?.market_cap || 0,
+      fdv: analysis.token_info?.fdv || 0,
+      price_change_24h: analysis.token_info?.price_change_24h || 0
+    };
+
+    // Add trading prompt flag
+    analysis.has_trading_prompt = true;
+    
     console.log('LOG: assessInvestmentPotential - Assessment complete');
     return analysis;
   } catch (error) {
@@ -299,14 +369,15 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
         fdv: 0,
         price_change_24h: 0
       },
-      smart_contract_risk: { rating: 0, comment: "", error: "Analysis failed" },
-      token_performance: { rating: 0, comment: "", error: "Analysis failed" },
-      on_chain_metrics: { rating: 0, comment: "", error: "Analysis failed" },
-      social_sentiment: { rating: 0, comment: "", error: "Analysis failed" },
+      smart_contract_risk: { rating: 0, comment: "Analysis failed", error: error.message },
+      token_performance: { rating: 0, comment: "Analysis failed", error: error.message },
+      on_chain_metrics: { rating: 0, comment: "Analysis failed", error: error.message },
+      social_sentiment: { rating: 0, comment: "Analysis failed", error: error.message },
       risk_reward_ratio: 0,
       confidence_score: 0,
-      final_recommendation: "Analysis failed due to error",
-      timestamp: new Date().toISOString()
+      final_recommendation: "Analysis failed due to an unexpected error. Please try again.",
+      timestamp: new Date().toISOString(),
+      has_trading_prompt: true
     };
   }
 }

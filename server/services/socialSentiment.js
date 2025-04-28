@@ -303,54 +303,11 @@ async function analyzeTwitterSentiment(tokenName, tokenSymbol, twitterHandle = n
     
     return { 
       success: false,
-      error: `Failed to analyze Twitter sentiment: ${error.message}` 
+      error: `Failed to analyze Twitter sentiment: ${error.message}`,
+      twitter_handle: twitterHandle || "Not found",
+      sentiment_score: 0
     };
   }
-}
-
-/**
- * Generate fallback sentiment data when APIs fail
- * @param {string} tokenName - Name of the token
- * @param {string} tokenSymbol - Symbol of the token
- * @returns {Object} Generated sentiment data
- */
-function generateFallbackSentimentData(tokenName, tokenSymbol) {
-  console.log(`LOG: generateFallbackSentimentData - Generating fallback data for ${tokenName} (${tokenSymbol})`);
-  
-  // Clean inputs
-  tokenName = cleanInputString(tokenName);
-  tokenSymbol = cleanInputString(tokenSymbol);
-  
-  // Create reasonable dummy data based on token info
-  const result = {
-    success: true,
-    source: "generated",
-    token_info: {
-      name: tokenName || "Unknown",
-      symbol: tokenSymbol || "UNKNOWN"
-    },
-    twitter: {
-      estimated_mentions: Math.floor(Math.random() * 100) + 5,
-      estimated_sentiment: (Math.random() * 2 - 1).toFixed(2),  // -1.0 to 1.0
-      popularity_score: (Math.random() * 10).toFixed(1)        // 0-10 scale
-    },
-    community: {
-      estimated_size: Math.floor(Math.random() * 10000) + 100,
-      estimated_activity: (Math.random() * 10).toFixed(1),     // 0-10 scale
-      estimated_growth: `${(Math.random() * 20).toFixed(1)}%`  // 0-20% growth
-    },
-    market_sentiment: {
-      bullish_signals: Math.floor(Math.random() * 5),          // 0-5 signals
-      bearish_signals: Math.floor(Math.random() * 5),          // 0-5 signals
-      neutral_signals: Math.floor(Math.random() * 5)           // 0-5 signals
-    },
-    overall_sentiment_score: (Math.random() * 2 - 1).toFixed(2),  // -1.0 to 1.0
-    last_updated: new Date().toISOString()
-  };
-  
-  console.log(`LOG: generateFallbackSentimentData - Generated fallback data with overall score: ${result.overall_sentiment_score}`);
-  
-  return result;
 }
 
 /**
@@ -448,12 +405,14 @@ async function analyzeSocialSentiment(tokenAddressOrInfo) {
     // Check if we have any valid data to search with
     if ((!tokenName || tokenName === '') && (!tokenSymbol || tokenSymbol === '')) {
       console.log(`LOG: analyzeSocialSentiment - No valid token name or symbol to search with`);
-      return generateFallbackSentimentData(tokenAddress, tokenAddress);
+      return {
+        success: false,
+        error: "No valid token name or symbol available for sentiment analysis"
+      };
     }
     
     // Try to analyze Twitter sentiment (with error handling)
     let twitterAnalysis;
-    let useFallback = false;
     
     try {
       console.log(`LOG: analyzeSocialSentiment - Starting Twitter sentiment analysis`);
@@ -464,49 +423,19 @@ async function analyzeSocialSentiment(tokenAddressOrInfo) {
         tweet_count: twitterAnalysis.total_tweets,
         sentiment_score: twitterAnalysis.sentiment_score
       });
-      
-      if (!twitterAnalysis.success || twitterAnalysis.total_tweets === 0) {
-        useFallback = true;
-      }
     } catch (twitterError) {
       console.error('ERROR: analyzeSocialSentiment - Twitter analysis failed:', twitterError.message);
-      useFallback = true;
       twitterAnalysis = { 
         success: false,
-        error: `Twitter API request failed: ${twitterError.message}`
+        error: `Twitter API request failed: ${twitterError.message}`,
+        twitter_handle: twitterHandle || "Not found",
+        sentiment_score: 0
       };
     }
     
-    // If Twitter analysis failed or returned no data, generate fallback data
-    if (useFallback) {
-      console.log('LOG: analyzeSocialSentiment - Twitter analysis failed or empty, generating fallback data');
-      const fallbackData = generateFallbackSentimentData(tokenName, tokenSymbol);
-      
-      // If we have DexScreener data, enhance the fallback data with it
-      if (dexScreenerData && dexScreenerData.success) {
-        fallbackData.token_info = {
-          name: tokenName || dexScreenerData.token_name || "Unknown",
-          symbol: tokenSymbol || dexScreenerData.token_symbol || "UNKNOWN",
-          address: tokenAddress || dexScreenerData.token_address
-        };
-        
-        fallbackData.market_data = {
-          price_usd: dexScreenerData.price_usd,
-          market_cap: dexScreenerData.market_cap,
-          liquidity_usd: dexScreenerData.liquidity_usd,
-          volume_24h: dexScreenerData.volume_24h,
-          price_change_24h: dexScreenerData.price_change?.h24
-        };
-        
-        fallbackData.links = dexScreenerData.links;
-      }
-      
-      return fallbackData;
-    }
-    
-    // Prepare final result
+    // Prepare result - even if Twitter analysis failed, we can still provide useful information
     const result = {
-      success: true,
+      success: twitterAnalysis.success || (dexScreenerData && dexScreenerData.success),
       token_info: {
         name: tokenName || "Unknown",
         symbol: tokenSymbol || "UNKNOWN",
@@ -527,7 +456,13 @@ async function analyzeSocialSentiment(tokenAddressOrInfo) {
         price_change_24h: dexScreenerData.price_change?.h24
       };
       
-      result.links = dexScreenerData.links;
+      // Add social links
+      result.socials = dexScreenerData.links?.socials || [];
+      
+      // Add website
+      if (dexScreenerData.links?.website) {
+        result.website = dexScreenerData.links.website;
+      }
       
       // Include buy/sell ratio if available
       if (dexScreenerData.buy_sell_ratio) {
@@ -538,8 +473,8 @@ async function analyzeSocialSentiment(tokenAddressOrInfo) {
         };
       }
       
-      // Adjust overall sentiment based on price movement
-      if (dexScreenerData.price_change && dexScreenerData.price_change.h24) {
+      // Adjust overall sentiment based on price movement - only if we have twitter sentiment
+      if (twitterAnalysis.success && dexScreenerData.price_change && dexScreenerData.price_change.h24) {
         const priceChange24h = dexScreenerData.price_change.h24;
         const priceChangeFactor = Math.min(Math.max(priceChange24h / 50, -0.5), 0.5); // Scale and cap price impact
         
@@ -549,19 +484,33 @@ async function analyzeSocialSentiment(tokenAddressOrInfo) {
         
         console.log(`LOG: analyzeSocialSentiment - Adjusted sentiment score from ${originalScore} to ${result.overall_sentiment_score} based on price change of ${priceChange24h}%`);
       }
+      // If Twitter failed but we have price data, use that for sentiment
+      else if (!twitterAnalysis.success && dexScreenerData.price_change && dexScreenerData.price_change.h24) {
+        const priceChange24h = dexScreenerData.price_change.h24;
+        // Simple normalization - positive price change creates positive sentiment
+        result.overall_sentiment_score = Math.min(Math.max(priceChange24h / 50, -1), 1);
+        console.log(`LOG: analyzeSocialSentiment - Using price change for sentiment: ${result.overall_sentiment_score} based on price change of ${priceChange24h}%`);
+      }
     }
     
-    console.log('LOG: analyzeSocialSentiment - Analysis complete with success');
+    // Even without DexScreener data, we can still provide Twitter sentiment if available
+    console.log('LOG: analyzeSocialSentiment - Analysis complete with success: ' + result.success);
     return result;
     
   } catch (error) {
     console.error('ERROR: analyzeSocialSentiment - Fatal error:', error.message);
     
-    // Return minimal error result with fallback
-    return generateFallbackSentimentData(
-      typeof tokenAddressOrInfo === 'string' ? tokenAddressOrInfo : 'Unknown',
-      typeof tokenAddressOrInfo === 'object' && tokenAddressOrInfo ? tokenAddressOrInfo.symbol || 'Unknown' : 'Unknown'
-    );
+    // Return minimal result with real data, no random generation
+    return {
+      success: false,
+      error: `Failed to analyze social sentiment: ${error.message}`,
+      token_info: {
+        name: typeof tokenAddressOrInfo === 'string' ? tokenAddressOrInfo : 'Unknown',
+        symbol: typeof tokenAddressOrInfo === 'object' && tokenAddressOrInfo ? tokenAddressOrInfo.symbol || 'Unknown' : 'Unknown'
+      },
+      overall_sentiment_score: 0,
+      last_updated: new Date().toISOString()
+    };
   }
 }
 
