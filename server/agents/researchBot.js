@@ -120,22 +120,206 @@ class ResearchBot {
       };
     }
   }
-
-/**
- * Generate comprehensive investment analysis based on collected data
- * @param {Object} contractAnalysis - Smart contract security analysis
- * @param {Object} tokenMetrics - Token market data
- * @param {Object} onChainData - On-chain metrics analysis
- * @param {Object} socialData - Social sentiment data
- * @returns {Object} Structured investment recommendation
- */
-async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
+  /**
+   * Analyzes transaction data to provide detailed insights
+   * @param {Object} transactions - Transaction data from DexScreener
+   * @returns {Object} Structured transaction analysis
+   */
+  analyzeTransactionData(transactions) {
+    console.log('LOG: analyzeTransactionData - Starting transaction analysis');
+    
+    if (!transactions) {
+      console.log('LOG: analyzeTransactionData - No transaction data available');
+      return {
+        rating: 0,
+        buy_sell_ratio: 0,
+        comment: "No transaction data available for analysis",
+        "24h_transactions": { buys: 0, sells: 0, total: 0 },
+        "6h_transactions": { buys: 0, sells: 0, total: 0 },
+        "1h_transactions": { buys: 0, sells: 0, total: 0 },
+        "5m_transactions": { buys: 0, sells: 0, total: 0 },
+        "transaction_trend": "Unknown",
+        "transaction_velocity": "Unknown",
+        "analysis_confidence": "Low"
+      };
+    }
+    
+    try {
+      // Extract transaction data for different time periods
+      const h24 = transactions.h24 || { buys: 0, sells: 0, total: 0 };
+      const h6 = transactions.h6 || { buys: 0, sells: 0, total: 0 };
+      const h1 = transactions.h1 || { buys: 0, sells: 0, total: 0 };
+      const m5 = transactions.m5 || { buys: 0, sells: 0, total: 0 };
+      
+      console.log('LOG: analyzeTransactionData - Extracted transaction data for different time periods');
+      
+      // Calculate buy/sell ratios for different time periods
+      const buyRatio24h = h24.sells > 0 ? (h24.buys / h24.sells).toFixed(2) : (h24.buys > 0 ? "∞" : "0");
+      const buyRatio6h = h6.sells > 0 ? (h6.buys / h6.sells).toFixed(2) : (h6.buys > 0 ? "∞" : "0");
+      const buyRatio1h = h1.sells > 0 ? (h1.buys / h1.sells).toFixed(2) : (h1.buys > 0 ? "∞" : "0");
+      const buyRatio5m = m5.sells > 0 ? (m5.buys / m5.sells).toFixed(2) : (m5.buys > 0 ? "∞" : "0");
+      
+      console.log('LOG: analyzeTransactionData - Calculated buy/sell ratios');
+      
+      // Determine transaction trend
+      let trend = "Stable";
+      if (h24.total > 0) {
+        const h24HourlyRate = h24.total / 24; // Avg transactions per hour over 24h
+        const h1HourlyRate = h1.total;        // Last hour rate
+        
+        if (h1HourlyRate > h24HourlyRate * 1.5) {
+          trend = "Strongly Increasing";
+        } else if (h1HourlyRate > h24HourlyRate * 1.2) {
+          trend = "Moderately Increasing";
+        } else if (h1HourlyRate < h24HourlyRate * 0.5) {
+          trend = "Strongly Decreasing";
+        } else if (h1HourlyRate < h24HourlyRate * 0.8) {
+          trend = "Moderately Decreasing";
+        }
+      }
+      
+      console.log(`LOG: analyzeTransactionData - Determined transaction trend: ${trend}`);
+      
+      // Determine buy/sell pressure trend
+      let buyPressureTrend = "Neutral";
+      if (parseFloat(buyRatio24h) > 0 && parseFloat(buyRatio1h) > 0) {
+        if (parseFloat(buyRatio1h) > parseFloat(buyRatio24h) * 1.3) {
+          buyPressureTrend = "Strongly Bullish";
+        } else if (parseFloat(buyRatio1h) > parseFloat(buyRatio24h) * 1.1) {
+          buyPressureTrend = "Moderately Bullish";
+        } else if (parseFloat(buyRatio1h) < parseFloat(buyRatio24h) * 0.7) {
+          buyPressureTrend = "Strongly Bearish";
+        } else if (parseFloat(buyRatio1h) < parseFloat(buyRatio24h) * 0.9) {
+          buyPressureTrend = "Moderately Bearish";
+        }
+      }
+      
+      console.log(`LOG: analyzeTransactionData - Determined buy pressure trend: ${buyPressureTrend}`);
+      
+      // Calculate transaction velocity (transactions per hour)
+      const velocityLast24h = (h24.total / 24).toFixed(2);
+      const velocityLast6h = (h6.total / 6).toFixed(2);
+      const velocityLast1h = h1.total;
+      
+      console.log(`LOG: analyzeTransactionData - Calculated transaction velocities: 24h=${velocityLast24h}/hr, 6h=${velocityLast6h}/hr, 1h=${velocityLast1h}/hr`);
+      
+      // Determine transaction velocity trend
+      let velocityTrend = "Stable";
+      if (parseFloat(velocityLast1h) > parseFloat(velocityLast24h) * 1.5) {
+        velocityTrend = "Rapidly Accelerating";
+      } else if (parseFloat(velocityLast1h) > parseFloat(velocityLast24h) * 1.2) {
+        velocityTrend = "Accelerating";
+      } else if (parseFloat(velocityLast1h) < parseFloat(velocityLast24h) * 0.5) {
+        velocityTrend = "Rapidly Decelerating";
+      } else if (parseFloat(velocityLast1h) < parseFloat(velocityLast24h) * 0.8) {
+        velocityTrend = "Decelerating";
+      }
+      
+      console.log(`LOG: analyzeTransactionData - Determined velocity trend: ${velocityTrend}`);
+      
+      // Calculate rating based on transaction metrics
+      let transactionRating = 5; // Default neutral rating
+      
+      // Adjust rating based on 24h transaction volume
+      if (h24.total > 1000) transactionRating += 2;
+      else if (h24.total > 500) transactionRating += 1;
+      else if (h24.total < 10) transactionRating -= 2;
+      else if (h24.total < 50) transactionRating -= 1;
+      
+      // Adjust rating based on buy/sell ratio
+      const numericBuyRatio24h = parseFloat(buyRatio24h);
+      if (numericBuyRatio24h > 2) transactionRating += 2;
+      else if (numericBuyRatio24h > 1.3) transactionRating += 1;
+      else if (numericBuyRatio24h < 0.5) transactionRating -= 2;
+      else if (numericBuyRatio24h < 0.8) transactionRating -= 1;
+      
+      // Adjust rating based on trend
+      if (trend === "Strongly Increasing") transactionRating += 1;
+      else if (trend === "Strongly Decreasing") transactionRating -= 1;
+      
+      // Cap the rating between 0 and 10
+      transactionRating = Math.max(0, Math.min(10, transactionRating));
+      
+      console.log(`LOG: analyzeTransactionData - Calculated transaction rating: ${transactionRating}`);
+      
+      // Generate analysis comment
+      let comment = `Transaction analysis based on ${h24.total} transactions in the last 24 hours. `;
+      
+      if (h24.total > 500) {
+        comment += `High transaction volume with ${velocityLast24h} transactions per hour on average. `;
+      } else if (h24.total > 100) {
+        comment += `Moderate transaction volume with ${velocityLast24h} transactions per hour on average. `;
+      } else {
+        comment += `Low transaction volume with only ${velocityLast24h} transactions per hour on average. `;
+      }
+      
+      comment += `The buy/sell ratio over 24 hours is ${buyRatio24h}, indicating ${
+        parseFloat(buyRatio24h) > 1.3 ? "strong buying pressure" : 
+        parseFloat(buyRatio24h) > 1 ? "moderate buying pressure" : 
+        parseFloat(buyRatio24h) === 1 ? "balanced trading" : 
+        parseFloat(buyRatio24h) > 0.7 ? "moderate selling pressure" : "strong selling pressure"
+      }. `;
+      
+      comment += `Transaction activity is ${trend.toLowerCase()} with ${buyPressureTrend.toLowerCase()} momentum.`;
+      
+      console.log(`LOG: analyzeTransactionData - Generated analysis comment`);
+      
+      // Create detailed analysis result
+      return {
+        rating: transactionRating,
+        buy_sell_ratio: numericBuyRatio24h,
+        comment: comment,
+        "24h_transactions": h24,
+        "6h_transactions": h6,
+        "1h_transactions": h1,
+        "5m_transactions": m5,
+        "transaction_trend": trend,
+        "buy_pressure_trend": buyPressureTrend,
+        "transaction_velocity": {
+          "24h_avg": velocityLast24h,
+          "6h_avg": velocityLast6h,
+          "1h": velocityLast1h,
+          "trend": velocityTrend
+        },
+        "buy_sell_ratios": {
+          "24h": buyRatio24h,
+          "6h": buyRatio6h,
+          "1h": buyRatio1h,
+          "5m": buyRatio5m
+        },
+        "analysis_confidence": h24.total > 100 ? "High" : h24.total > 20 ? "Medium" : "Low"
+      };
+    } catch (error) {
+      console.error('ERROR: analyzeTransactionData -', error);
+      return {
+        rating: 0,
+        buy_sell_ratio: 0,
+        comment: `Error analyzing transaction data: ${error.message}`,
+        "24h_transactions": { buys: 0, sells: 0, total: 0 },
+        "6h_transactions": { buys: 0, sells: 0, total: 0 },
+        "1h_transactions": { buys: 0, sells: 0, total: 0 },
+        "transaction_trend": "Unknown",
+        "analysis_confidence": "Low",
+        "error": error.message
+      };
+    }
+  }
+ /**
+   * Generate comprehensive investment analysis based on collected data
+   * @param {Object} contractAnalysis - Smart contract security analysis
+   * @param {Object} tokenMetrics - Token market data
+   * @param {Object} onChainData - On-chain metrics analysis
+   * @param {Object} socialData - Social sentiment data
+   * @returns {Object} Structured investment recommendation
+   */
+ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
   console.log('LOG: assessInvestmentPotential - Starting investment assessment');
   console.log(`LOG: assessInvestmentPotential - Data available: Contract=${!!contractAnalysis}, Token=${!!tokenMetrics}, OnChain=${!!onChainData}, Social=${!!socialData}`);
   
   try {
     // Extract market data for prompt enrichment
     let marketData = {};
+    let transactions = null;
     
     // Try to get market data from onChainData first (new structure)
     if (onChainData && onChainData.market_data) {
@@ -152,6 +336,21 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
         fdv: metrics.fdv,
         price_change_24h: metrics.price_change_24h
       };
+    }
+    
+    // Save original transaction data for later direct inclusion
+    let rawTransactions = null;
+    
+    // Extract transaction data from tokenMetrics if available
+    if (tokenMetrics && tokenMetrics.enhanced_market_data && tokenMetrics.enhanced_market_data.transactions) {
+      // Save a reference to the raw transaction data
+      rawTransactions = tokenMetrics.enhanced_market_data.transactions;
+      transactions = { ...rawTransactions }; // Clone to avoid mutation
+      
+      // Also add buy/sell ratio if available
+      if (tokenMetrics.enhanced_market_data.buy_sell_ratio_24h) {
+        transactions.buy_sell_ratio = tokenMetrics.enhanced_market_data.buy_sell_ratio_24h;
+      }
     }
     
     // Create analysis prompt with enhanced market data and better instructions
@@ -174,6 +373,9 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
     
     Social Sentiment Analysis:
     ${JSON.stringify(socialData || {}, null, 2)}
+    
+    Transaction Data:
+    ${JSON.stringify(transactions || {}, null, 2)}
 
     ANALYSIS REQUIREMENTS:
     
@@ -194,20 +396,27 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
        - Analyze transaction patterns, whale activity, holder distribution
        - Provide specific holder counts, whale percentages, or transaction frequencies
        - Note any suspicious on-chain activities (wash trading, etc.)
+       - Include buy/sell ratio analysis when available
        
-    4. SOCIAL SENTIMENT EVALUATION:
+    4. TRANSACTION ANALYSIS:
+       - Analyze transaction counts across different time periods (24h, 6h, 1h, 5m)
+       - Evaluate the buy vs sell pressure based on transaction counts
+       - Calculate and interpret the buy/sell ratio
+       - Note any unusual transaction patterns or potential market manipulation
+       
+    5. SOCIAL SENTIMENT EVALUATION:
        - Rate social sentiment from 0-10 (higher is better)
        - Include specific data points about community size or engagement if available
        - Mention specific platforms where token is discussed (Twitter, Telegram, etc.)
        - Note if sentiment data is limited or unavailable
        
-    5. OVERALL INVESTMENT ASSESSMENT:
+    6. OVERALL INVESTMENT ASSESSMENT:
        - Calculate a risk/reward ratio (0-5 scale)
        - Provide a confidence score (0-100%)
        - Deliver a detailed, specific recommendation with timeframe considerations
        - Mention specific catalysts or risk factors unique to this token
        
-    6. DO NOT USE GENERIC PHRASES like "The token shows promise" or "Further research is recommended"
+    7. DO NOT USE GENERIC PHRASES like "The token shows promise" or "Further research is recommended"
        Instead, give concrete insights based on the specific data provided.
 
     OUTPUT FORMAT:
@@ -219,7 +428,8 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
         "price_usd": <price>,
         "market_cap": <market cap>,
         "fdv": <fully diluted valuation>,
-        "price_change_24h": <24h price change percent>
+        "price_change_24h": <24h price change percent>,
+        "liquidity_usd": <liquidity in USD>
       },
       "smart_contract_risk": { 
         "rating": <0-10>, 
@@ -236,6 +446,15 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
           "price_stability": <0-10>
         },
         "error": "<error or null>" 
+      },
+      "transaction_analysis": {
+        "rating": <0-10>,
+        "buy_sell_ratio": <ratio>,
+        "comment": "<detailed transaction analysis>",
+        "24h_transactions": { "buys": <count>, "sells": <count>, "total": <count> },
+        "6h_transactions": { "buys": <count>, "sells": <count>, "total": <count> },
+        "1h_transactions": { "buys": <count>, "sells": <count>, "total": <count> },
+        "transaction_trend": "<increasing/decreasing/stable>"
       },
       "on_chain_metrics": { 
         "rating": <0-10>, 
@@ -295,7 +514,29 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
     // Add token info if not present but available in our data
     if (!analysis.token_info && Object.keys(marketData).length > 0) {
       console.log('LOG: assessInvestmentPotential - Adding missing token_info from market data');
-      analysis.token_info = marketData;
+      analysis.token_info = {
+        name: marketData.token_name,
+        symbol: marketData.token_symbol,
+        price_usd: marketData.price_usd,
+        market_cap: marketData.market_cap,
+        fdv: marketData.fdv,
+        price_change_24h: marketData.price_change?.h24,
+        liquidity_usd: marketData.liquidity_usd  
+      };
+    }
+    
+    // IMPORTANT: Use our dedicated transaction analysis method instead of LLM's analysis
+    if (rawTransactions) {
+      console.log('LOG: assessInvestmentPotential - Using dedicated transaction analysis method');
+      
+      // Use our specialized transaction analysis function
+      const detailedTransactionAnalysis = this.analyzeTransactionData(rawTransactions);
+      
+      // Replace the LLM's transaction analysis with our more data-driven one
+      analysis.transaction_analysis = detailedTransactionAnalysis;
+      
+      // Also include raw transaction data directly
+      analysis.raw_transactions = rawTransactions;
     }
     
     // Add social media links if available in the social data
@@ -347,9 +588,15 @@ async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, soc
       price_usd: analysis.token_info?.price_usd || 0,
       market_cap: analysis.token_info?.market_cap || 0,
       fdv: analysis.token_info?.fdv || 0,
-      price_change_24h: analysis.token_info?.price_change_24h || 0
+      price_change_24h: analysis.token_info?.price_change_24h || 0,
+      liquidity_usd: analysis.token_info?.liquidity_usd || marketData?.liquidity_usd || 0,
     };
 
+    // If there's raw pair data in tokenMetrics, include it directly in the result
+    if (tokenMetrics && tokenMetrics.enhanced_market_data && tokenMetrics.enhanced_market_data.raw_main_pair) {
+      analysis.raw_pair_data = tokenMetrics.enhanced_market_data.raw_main_pair;
+    }
+    
     // Add trading prompt flag
     analysis.has_trading_prompt = true;
     
@@ -528,7 +775,7 @@ async processInitialQuery(query) {
       console.log('LOG: processInitialQuery - Fetching DexScreener market data');
       try {
         this.state.marketData = await fetchDexScreenerData(this.state.contractAddress);
-        console.log('LOG: processInitialQuery - DexScreener data fetched successfully');
+        console.log('LOG: processInitialQuery - DexScreener data fetched successfully', this.state.marketData);
         
         // If token data is missing or limited, enhance it with DexScreener data
         if (this.state.marketData.success && (!this.state.tokenData || !this.state.tokenData.name)) {
@@ -546,7 +793,25 @@ async processInitialQuery(query) {
           this.state.tokenData.price_usd = this.state.marketData.price_usd;
           this.state.tokenData.liquidity_usd = this.state.marketData.liquidity_usd;
           this.state.tokenData.volume_24h = this.state.marketData.volume_24h;
-          this.state.tokenData.price_change_24h = this.state.marketData.price_change?.h24;
+          this.state.tokenData.price_change_24h = this.state.marketData.price_change.h24;
+          
+          // Add all the enhanced data
+          this.state.tokenData.enhanced_market_data = {
+            liquidity: this.state.marketData.liquidity_usd,
+            volume: this.state.marketData.volume,
+            price_change: this.state.marketData.price_change,
+            transactions: this.state.marketData.transactions,
+            buy_sell_ratio_24h: this.state.marketData.buy_sell_ratio_24h,
+            pair_info: {
+              dex: this.state.marketData.dex,
+              pair_address: this.state.marketData.pair_address,
+              created_at: this.state.marketData.pair_created_at
+            },
+            socials: this.state.marketData.links.socials,
+            website: this.state.marketData.links.website,
+            all_pairs: this.state.marketData.all_pairs,
+            raw_main_pair: this.state.marketData.raw_main_pair
+          };
         }
       } catch (marketError) {
         console.error('ERROR: processInitialQuery - DexScreener analysis failed:', marketError);
@@ -644,6 +909,46 @@ async processInitialQuery(query) {
           this.state.marketData.links && this.state.marketData.links.website) {
         this.state.finalAnalysis.website = this.state.marketData.links.website;
       }
+      
+      // NEW: OVERRIDE transaction_analysis with raw data from DexScreener
+      if (this.state.marketData && this.state.marketData.success && this.state.marketData.transactions) {
+        console.log('LOG: processInitialQuery - Overriding transaction_analysis with raw DexScreener data');
+        
+        // Calculate trend
+        let trend = "Stable";
+        const h24 = this.state.marketData.transactions.h24;
+        const h1 = this.state.marketData.transactions.h1;
+        
+        if (h24 && h1 && h24.total > 0) {
+          const h24Rate = h24.total / 24; // Avg per hour in 24h period
+          const h1Rate = h1.total;        // Last hour
+          if (h1Rate > h24Rate * 1.2) {   // 20% higher than average
+            trend = "Increasing";
+          } else if (h1Rate < h24Rate * 0.8) {  // 20% lower than average
+            trend = "Decreasing";
+          }
+        }
+        
+        // Completely override transaction_analysis with raw data
+        this.state.finalAnalysis.transaction_analysis = {
+          // Keep LLM's rating if available
+          rating: this.state.finalAnalysis.transaction_analysis?.rating || 7,
+          buy_sell_ratio: this.state.marketData.buy_sell_ratio_24h,
+          // Keep LLM's comment if sensible, otherwise override
+          comment: (this.state.finalAnalysis.transaction_analysis?.comment?.includes("null")) ? 
+                  "Raw transaction data from DexScreener" : 
+                  this.state.finalAnalysis.transaction_analysis?.comment || "Raw transaction data from DexScreener",
+          // Directly use the raw transaction data
+          "24h_transactions": this.state.marketData.transactions.h24,
+          "6h_transactions": this.state.marketData.transactions.h6,
+          "1h_transactions": this.state.marketData.transactions.h1,
+          "5m_transactions": this.state.marketData.transactions.m5,
+          "transaction_trend": trend
+        };
+        
+        // Also include raw transaction data directly
+        this.state.finalAnalysis.raw_transactions = this.state.marketData.transactions;
+      }
     } else {
       console.log('LOG: processInitialQuery - Insufficient data for analysis');
       this.state.finalAnalysis = {
@@ -674,7 +979,6 @@ async processInitialQuery(query) {
     };
   }
 }
-
   /**
    * Process user's trading decision
    * @param {string} decision - User's decision (yes/no) 
