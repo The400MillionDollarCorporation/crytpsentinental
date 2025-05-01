@@ -30,6 +30,7 @@ async function analyzeToken(tokenAddress, socialInfo = {}) {
     
     // Combine all analyses
     const comprehensiveAnalysis = {
+      token_address: tokenAddress,
       token_details: tokenDetails,
       on_chain_metrics: onChainAnalysis,
       social_sentiment: socialAnalysis,
@@ -39,7 +40,10 @@ async function analyzeToken(tokenAddress, socialInfo = {}) {
     return comprehensiveAnalysis;
   } catch (error) {
     console.error('Error in token analysis:', error);
-    return { error: `Failed to analyze token: ${error.message}` };
+    return { 
+      error: `Failed to analyze token: ${error.message}`,
+      token_address: tokenAddress 
+    };
   }
 }
 

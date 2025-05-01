@@ -66,7 +66,7 @@ async function fetchDexScreenerData(tokenAddress) {
     // If we found a pair where our token is the base, use that
     // Otherwise use the first pair in the filtered list
     const mainPair = baseTokenPair || relevantPairs[0];
-    console.log(mainPair.txns, 'fuckupododo')
+  
     
     if (!mainPair) {
       console.log(`LOG: fetchDexScreenerData - No relevant pairs found where ${tokenAddress} is base or quote token`);
@@ -168,12 +168,20 @@ async function fetchDexScreenerData(tokenAddress) {
           total: parseInt((mainPair.txns?.m5?.buys || 0) + (mainPair.txns?.m5?.sells || 0))
         }
       },
+
+      base_token: {
+        name: mainPair.baseToken.name,
+        symbol: mainPair.baseToken.symbol,
+        address: mainPair.baseToken.address
+      },
       
       // Pair info
       pair_address: mainPair.pairAddress,
       dex: mainPair.dexId,
       chain_id: mainPair.chainId,
       pair_created_at: mainPair.pairCreatedAt,
+
+ 
       
       // Labels (CLMM, etc.)
       labels: mainPair.labels || [],

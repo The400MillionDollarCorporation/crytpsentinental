@@ -312,7 +312,9 @@ class ResearchBot {
    * @param {Object} socialData - Social sentiment data
    * @returns {Object} Structured investment recommendation
    */
- async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
+
+ // In the assessInvestmentPotential method in ResearchBot class
+async assessInvestmentPotential(contractAnalysis, tokenMetrics, onChainData, socialData) {
   console.log('LOG: assessInvestmentPotential - Starting investment assessment');
   console.log(`LOG: assessInvestmentPotential - Data available: Contract=${!!contractAnalysis}, Token=${!!tokenMetrics}, OnChain=${!!onChainData}, Social=${!!socialData}`);
   
@@ -338,6 +340,16 @@ class ResearchBot {
       };
     }
     
+    // Get token address from available sources
+    let tokenAddress = null;
+    if (tokenMetrics && tokenMetrics.token_mint) {
+      tokenAddress = tokenMetrics.token_mint;
+    } else if (contractAnalysis && contractAnalysis.program_data && contractAnalysis.program_data.programId) {
+      tokenAddress = contractAnalysis.program_data.programId;
+    } else if (this.state && this.state.contractAddress) {
+      tokenAddress = this.state.contractAddress;
+    }
+    
     // Save original transaction data for later direct inclusion
     let rawTransactions = null;
     
@@ -358,6 +370,8 @@ class ResearchBot {
     const prompt = `You are a professional cryptocurrency analyst specializing in Solana tokens. Provide a detailed, data-driven assessment of this token based on the following information.
 
     TOKEN DATA FOR ANALYSIS:
+    
+    Token Address: ${tokenAddress || "Unknown"}
     
     Token Market Data:
     ${JSON.stringify(marketData || {}, null, 2)}
@@ -418,6 +432,8 @@ class ResearchBot {
        
     7. DO NOT USE GENERIC PHRASES like "The token shows promise" or "Further research is recommended"
        Instead, give concrete insights based on the specific data provided.
+    
+    8. ALWAYS INCLUDE THE TOKEN ADDRESS in your token_info section.
 
     OUTPUT FORMAT:
     Return your analysis as a JSON object with the following structure:
@@ -425,6 +441,7 @@ class ResearchBot {
       "token_info": {
         "name": "<token name>",
         "symbol": "<token symbol>",
+        "address": "${tokenAddress || "Unknown"}",
         "price_usd": <price>,
         "market_cap": <market cap>,
         "fdv": <fully diluted valuation>,
@@ -517,12 +534,20 @@ class ResearchBot {
       analysis.token_info = {
         name: marketData.token_name,
         symbol: marketData.token_symbol,
+        address: tokenAddress || "Unknown",
         price_usd: marketData.price_usd,
         market_cap: marketData.market_cap,
         fdv: marketData.fdv,
         price_change_24h: marketData.price_change?.h24,
-        liquidity_usd: marketData.liquidity_usd  
+        liquidity_usd: marketData.liquidity_usd,
+        base_token: marketData.base_token,
       };
+    }
+    
+    // Make sure token address is included in token_info if not already there
+    if (analysis.token_info && !analysis.token_info.address && tokenAddress) {
+      console.log('LOG: assessInvestmentPotential - Adding token address to token_info');
+      analysis.token_info.address = tokenAddress;
     }
     
     // IMPORTANT: Use our dedicated transaction analysis method instead of LLM's analysis
@@ -585,6 +610,7 @@ class ResearchBot {
     analysis.market_summary = {
       token_name: analysis.token_info?.name || "Unknown",
       token_symbol: analysis.token_info?.symbol || "Unknown",
+      token_address: tokenAddress || analysis.token_info?.address || "Unknown",
       price_usd: analysis.token_info?.price_usd || 0,
       market_cap: analysis.token_info?.market_cap || 0,
       fdv: analysis.token_info?.fdv || 0,
@@ -606,11 +632,18 @@ class ResearchBot {
     console.error('ERROR: assessInvestmentPotential -', error);
     console.log('LOG: assessInvestmentPotential - Returning fallback analysis due to error');
     
+    // Get token address from available sources
+    let tokenAddress = null;
+    if (this.state && this.state.contractAddress) {
+      tokenAddress = this.state.contractAddress;
+    }
+    
     return {
       error: `Error generating recommendation: ${error.message}`,
       token_info: {
         name: "Unknown",
         symbol: "Unknown",
+        address: tokenAddress || "Unknown",
         price_usd: 0,
         market_cap: 0,
         fdv: 0,
@@ -676,55 +709,57 @@ class ResearchBot {
    * @param {Object} programData - Solana program analysis data 
    * @returns {Object} Extracted token data
    */
-  extractTokenDataFromProgramAnalysis(programData) {
-    console.log('LOG: extractTokenDataFromProgramAnalysis - Extracting token data');
-    
-    if (!programData || programData.error) {
-      console.log('LOG: extractTokenDataFromProgramAnalysis - No valid program data available');
-      return null;
-    }
-    
-    try {
-      // Check if this is a token
-      if (programData.token_analysis && programData.token_analysis.is_token) {
-        console.log('LOG: extractTokenDataFromProgramAnalysis - Found token data in program analysis');
-        
-        const metadata = programData.token_analysis.metadata && programData.token_analysis.metadata.success 
-          ? programData.token_analysis.metadata 
-          : null;
-          
-        const mintInfo = programData.token_analysis.mint_info && programData.token_analysis.mint_info.success 
-          ? programData.token_analysis.mint_info 
-          : null;
-          
-        const holders = programData.token_analysis.holders && programData.token_analysis.holders.success 
-          ? programData.token_analysis.holders 
-          : null;
-        
-        // Construct token data from program analysis
-        return {
-          token_mint: programData.program_data.programId,
-          name: metadata?.name || 'Unknown Token',
-          symbol: metadata?.symbol || 'UNKNOWN',
-          decimals: mintInfo?.decimals || 0,
-          supply: mintInfo?.supply,
-          mintAuthority: mintInfo?.mintAuthority,
-          canMintMore: mintInfo?.canMintMore,
-          holder_count: holders?.holder_count || 0,
-          tokenType: programData.program_data.tokenType,
-          last_updated: new Date().toISOString()
-        };
-      }
+// In the extractTokenDataFromProgramAnalysis method
+extractTokenDataFromProgramAnalysis(programData) {
+  console.log('LOG: extractTokenDataFromProgramAnalysis - Extracting token data');
+  
+  if (!programData || programData.error) {
+    console.log('LOG: extractTokenDataFromProgramAnalysis - No valid program data available');
+    return null;
+  }
+  
+  try {
+    // Check if this is a token
+    if (programData.token_analysis && programData.token_analysis.is_token) {
+      console.log('LOG: extractTokenDataFromProgramAnalysis - Found token data in program analysis');
       
-      console.log('LOG: extractTokenDataFromProgramAnalysis - No token data found in program analysis');
-      return null;
-    } catch (error) {
-      console.error('ERROR: extractTokenDataFromProgramAnalysis -', error);
+      const metadata = programData.token_analysis.metadata && programData.token_analysis.metadata.success 
+        ? programData.token_analysis.metadata 
+        : null;
+        
+      const mintInfo = programData.token_analysis.mint_info && programData.token_analysis.mint_info.success 
+        ? programData.token_analysis.mint_info 
+        : null;
+        
+      const holders = programData.token_analysis.holders && programData.token_analysis.holders.success 
+        ? programData.token_analysis.holders 
+        : null;
+      
+      // Construct token data from program analysis
       return {
-        error: `Failed to extract token data: ${error.message}`
+        token_mint: programData.program_data.programId,
+        address: programData.program_data.programId, // Added explicit address field
+        name: metadata?.name || 'Unknown Token',
+        symbol: metadata?.symbol || 'UNKNOWN',
+        decimals: mintInfo?.decimals || 0,
+        supply: mintInfo?.supply,
+        mintAuthority: mintInfo?.mintAuthority,
+        canMintMore: mintInfo?.canMintMore,
+        holder_count: holders?.holder_count || 0,
+        tokenType: programData.program_data.tokenType,
+        last_updated: new Date().toISOString()
       };
     }
+    
+    console.log('LOG: extractTokenDataFromProgramAnalysis - No token data found in program analysis');
+    return null;
+  } catch (error) {
+    console.error('ERROR: extractTokenDataFromProgramAnalysis -', error);
+    return {
+      error: `Failed to extract token data: ${error.message}`
+    };
   }
+}
 
 /**
  * Process the initial research query
@@ -774,45 +809,49 @@ async processInitialQuery(query) {
     if (this.state.contractAddress) {
       console.log('LOG: processInitialQuery - Fetching DexScreener market data');
       try {
+        console.log('LOG: processInitialQuery - Fetching DexScreener market data for address:', this.state.contractAddress);
         this.state.marketData = await fetchDexScreenerData(this.state.contractAddress);
         console.log('LOG: processInitialQuery - DexScreener data fetched successfully', this.state.marketData);
         
-        // If token data is missing or limited, enhance it with DexScreener data
-        if (this.state.marketData.success && (!this.state.tokenData || !this.state.tokenData.name)) {
-          console.log('LOG: processInitialQuery - Enhancing token data with DexScreener info');
-          
-          if (!this.state.tokenData) {
-            this.state.tokenData = {};
-          }
-          
-          // Add or update token data with DexScreener information
-          this.state.tokenData.name = this.state.tokenData.name || this.state.marketData.token_name;
-          this.state.tokenData.symbol = this.state.tokenData.symbol || this.state.marketData.token_symbol;
-          this.state.tokenData.market_cap = this.state.marketData.market_cap;
-          this.state.tokenData.fdv = this.state.marketData.fdv;
-          this.state.tokenData.price_usd = this.state.marketData.price_usd;
-          this.state.tokenData.liquidity_usd = this.state.marketData.liquidity_usd;
-          this.state.tokenData.volume_24h = this.state.marketData.volume_24h;
-          this.state.tokenData.price_change_24h = this.state.marketData.price_change.h24;
-          
-          // Add all the enhanced data
-          this.state.tokenData.enhanced_market_data = {
-            liquidity: this.state.marketData.liquidity_usd,
-            volume: this.state.marketData.volume,
-            price_change: this.state.marketData.price_change,
-            transactions: this.state.marketData.transactions,
-            buy_sell_ratio_24h: this.state.marketData.buy_sell_ratio_24h,
-            pair_info: {
-              dex: this.state.marketData.dex,
-              pair_address: this.state.marketData.pair_address,
-              created_at: this.state.marketData.pair_created_at
-            },
-            socials: this.state.marketData.links.socials,
-            website: this.state.marketData.links.website,
-            all_pairs: this.state.marketData.all_pairs,
-            raw_main_pair: this.state.marketData.raw_main_pair
-          };
-        }
+    // If token data is missing or limited, enhance it with DexScreener data
+if (this.state.marketData.success && (!this.state.tokenData || !this.state.tokenData.name)) {
+  console.log('LOG: processInitialQuery - Enhancing token data with DexScreener info');
+  
+  if (!this.state.tokenData) {
+    this.state.tokenData = {};
+  }
+  
+  // Add or update token data with DexScreener information
+  this.state.tokenData.name = this.state.tokenData.name || this.state.marketData.token_name;
+  this.state.tokenData.symbol = this.state.tokenData.symbol || this.state.marketData.token_symbol;
+  this.state.tokenData.token_address = this.state.contractAddress || this.state.marketData.token_address;
+  this.state.tokenData.market_cap = this.state.marketData.market_cap;
+  this.state.tokenData.fdv = this.state.marketData.fdv;
+  this.state.tokenData.price_usd = this.state.marketData.price_usd;
+  this.state.tokenData.liquidity_usd = this.state.marketData.liquidity_usd;
+  this.state.tokenData.volume_24h = this.state.marketData.volume_24h;
+  this.state.tokenData.price_change_24h = this.state.marketData.price_change.h24;
+  this.state.tokenData.base_token = this.state.marketData.base_token;
+  
+  // Add all the enhanced data
+  this.state.tokenData.enhanced_market_data = {
+    liquidity: this.state.marketData.liquidity_usd,
+    volume: this.state.marketData.volume,
+    price_change: this.state.marketData.price_change,
+    transactions: this.state.marketData.transactions,
+    base_token: this.state.marketData.base_token,
+    buy_sell_ratio_24h: this.state.marketData.buy_sell_ratio_24h,
+    pair_info: {
+      dex: this.state.marketData.dex,
+      pair_address: this.state.marketData.pair_address,
+      created_at: this.state.marketData.pair_created_at
+    },
+    socials: this.state.marketData.links.socials,
+    website: this.state.marketData.links.website,
+    all_pairs: this.state.marketData.all_pairs,
+    raw_main_pair: this.state.marketData.raw_main_pair
+  };
+}
       } catch (marketError) {
         console.error('ERROR: processInitialQuery - DexScreener analysis failed:', marketError);
         this.state.marketData = { 
@@ -838,7 +877,8 @@ async processInitialQuery(query) {
             fdv: this.state.marketData.fdv,
             liquidity_usd: this.state.marketData.liquidity_usd,
             volume_24h: this.state.marketData.volume_24h,
-            price_change_24h: this.state.marketData.price_change?.h24
+            price_change_24h: this.state.marketData.price_change?.h24,
+            base_token: this.state.marketData.base_token
           };
         }
       } catch (onChainError) {
@@ -890,6 +930,7 @@ async processInitialQuery(query) {
         this.state.finalAnalysis.token_info = {
           name: this.state.marketData.token_name,
           symbol: this.state.marketData.token_symbol,
+          address: this.state.contractAddress || this.state.marketData.token_address,
           price_usd: this.state.marketData.price_usd,
           market_cap: this.state.marketData.market_cap,
           fdv: this.state.marketData.fdv,
